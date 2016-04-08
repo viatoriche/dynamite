@@ -26,8 +26,7 @@ class TestTables(unittest.TestCase):
         class TestTable(tables.Table):
 
             name = table_name
-            endpoint_url = 'http://localhost:8000'
-
+            conn_options = dict(endpoint_url='http://localhost:8000')
 
         table = TestTable()
         created1, item1 = table.items.create(hash_attr='123', item={'jopa': '1'})
@@ -62,7 +61,7 @@ class TestTables(unittest.TestCase):
         class TestTable2(tables.Table):
 
             name = table_name
-            endpoint_url = 'http://localhost:8000'
+            conn_options = dict(endpoint_url='http://localhost:8000')
 
         self.assertEqual(TestTable(), TestTable())
         self.assertNotEqual(TestTable(), TestTable2())
