@@ -1,92 +1,115 @@
+import uuid
+
+from botocore import exceptions as boto_exceptions
 from dynamite import connection
 from dynamite import defines
-from botocore import exceptions as boto_exceptions
-import uuid
+
+class Singleton(object):
+    """Singleton class"""
+
+    __instances = {}
+
+    def __new__(cls, *args, **kwargs):
+        instance = Singleton.__instances.get(cls)
+        if instance is None:
+            Singleton.__instances[cls] = object.__new__(cls, *args, **kwargs)
+            instance = Singleton.__instances[cls]
+        return instance
 
 class KeyValidationError(ValueError):
     pass
 
-class TableItems(object):
 
+class TableItems(object):
     def generate_hash(self):
         return str(uuid.uuid4())
 
     def __init__(self, table=None):
         self.table = table
 
-    def validate_key(self, key):
-        hash_name = self.table.get_hash_name()
-        if hash_name not in key:
-            raise KeyValidationError('hash {} not in key'.format(hash_name))
-        # for rng in self.table.ranges:
-        #     range_name = rng[0]
-        #     if range_name not in key:
-        #         raise KeyValidationError('range {} not in key'.format(range_name))
-
-    def generate_key(self, hash, ranges=None):
+    def generate_key(self, item=None, hash_attr=None, ranges=None):
+        key = {}
+        if item is not None:
+            key.update(self.get_key_from_item(item))
         if ranges is None:
             ranges = {}
-        hash_name = self.table.get_hash_name()
-        key = {
-            hash_name: hash,
-        }
-        for rng in ranges:
-            key[rng] = ranges[rng]
-        self.validate_key(key)
+        if hash_attr is not None:
+            hash_name = self.table.get_hash_name()
+            key.update(
+                {
+                    hash_name: hash_attr,
+                }
+            )
+        key.update({rng: ranges[rng] for rng in ranges if ranges[rng] is not None})
         return key
 
     def get_hash_from_item(self, item):
-        return item[self.table.get_hash_name()]
+        return item.get(self.table.get_hash_name(), None)
 
     def get_ranges_from_item(self, item):
-        return {rng: item[rng] for rng in self.table.ranges}
+        return {rng: item.get(rng, None) for rng in self.table.ranges if rng in item}
 
     def get_key_from_item(self, item):
-        key = {self.table.get_hash_name(): self.get_hash_from_item(item)}
+        hash_key = {self.table.get_hash_name(): self.get_hash_from_item(item)}
         ranges = self.get_ranges_from_item(item)
-        ranges.update(key)
-        return ranges
+        ranges.update(hash_key)
+        key = {k: ranges[k] for k in ranges if ranges[k] is not None}
+        return key
 
-    def update(self, hash, ranges=None, **options):
-        key = self.generate_key(hash, ranges)
+    def update(self, item=None, hash_attr=None, ranges=None, **options):
+        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
+
         options.update({'Key': key})
         response = self.table.update_item(**options)
         result = response['ResponseMetadata']['HTTPStatusCode'] == 200
         return result
 
-    def delete(self, hash, ranges=None):
-        response = self.table.delete_item(Key=self.generate_key(hash, ranges))
+    def delete(self, item=None, hash_attr=None, ranges=None):
+        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
+
+        response = self.table.delete_item(Key=key)
         result = response['ResponseMetadata']['HTTPStatusCode'] == 200
         return result
 
-    def put(self, hash, ranges=None, item=None):
+    def put(self, item=None, hash_attr=None, ranges=None):
+        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
         if item is None:
             item = {}
-        key = self.generate_key(hash, ranges)
         item.update(key)
         response = self.table.put_item(Item=item)
         result = response['ResponseMetadata']['HTTPStatusCode'] == 200
-        return result, item, self.get_key_from_item(item)
+        return result, item
 
-    def get(self, hash, ranges=None):
-        key = self.generate_key(hash, ranges)
+    def get(self, item=None, hash_attr=None, ranges=None):
+        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
         response = self.table.get_item(
             Key=key,
         )
         return response.get('Item', None)
 
-    def hash_name(self):
-        return self.table.get_hash_name()
+    def create(self, item=None, hash_attr=None, ranges=None):
+        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
+        if item is None:
+            item = {}
 
-    def create(self, hash=None, ranges=None, item=None):
-        if hash is None:
-            hash = self.generate_hash()
+        item.update(key)
+        hash_attr = self.get_hash_from_item(item)
+        if hash_attr is None:
+            hash_attr = self.generate_hash()
+            key.update(self.generate_key(hash_attr=hash_attr))
 
-        if self.get(hash, ranges) is None:
-            return self.put(hash, ranges, item)
+        if ranges is None:
+            ranges = self.get_ranges_from_item(item)
+            key.update(self.generate_key(ranges=ranges))
+
+        item.update(key)
+
+        if self.get(item=item) is None:
+            return self.put(item=item)
         else:
-            hash = self.generate_hash()
-            return self.create(hash=hash, ranges=ranges, item=item)
+            hash_attr = self.generate_hash()
+            item.update(self.generate_key(hash_attr=hash_attr))
+            return self.create(item=item)
 
     def scan(self, **options):
         response = self.table.scan(**options)
@@ -99,16 +122,17 @@ class TableItems(object):
         return items
 
 
-class Table(object):
+class Table(Singleton):
     name = None
     _connection = None
     conn_options = None
-    hash = ('id', defines.STRING, )
+    hash = ('id', defines.STRING,)
     ranges = []
     hash_type = defines.STRING
     range_types = []
     read_capacity_units = 5
     write_capacity_units = 5
+    _table = None
 
     items = TableItems()
 
@@ -119,7 +143,10 @@ class Table(object):
         self.items.table = self
 
     def __call__(self, *args, **kwargs):
-        return self
+        """
+        get boto3 table
+        """
+        return self.table()
 
     @classmethod
     def connection(cls):
@@ -144,7 +171,7 @@ class Table(object):
                 'AttributeName': attr[0],
                 'KeyType': defines.RANGE,
             } for attr in cls.ranges
-        ]
+            ]
         key_schema += ranges
 
         return key_schema
@@ -161,16 +188,16 @@ class Table(object):
     def get_attribute_definitions(cls):
 
         attribute_definitions = [
-            {
-                'AttributeName': cls.get_hash_name(),
-                'AttributeType': cls.get_hash_type(),
-            }
-        ] + [
-            {
-                'AttributeName': attr[0],
-                'AttributeType': attr[1],
-            } for attr in cls.ranges
-        ]
+                                    {
+                                        'AttributeName': cls.get_hash_name(),
+                                        'AttributeType': cls.get_hash_type(),
+                                    }
+                                ] + [
+                                    {
+                                        'AttributeName': attr[0],
+                                        'AttributeType': attr[1],
+                                    } for attr in cls.ranges
+                                    ]
         return attribute_definitions
 
     @classmethod
@@ -197,12 +224,18 @@ class Table(object):
 
     @classmethod
     def table(cls):
-        try:
-            table = cls.create()
-        except boto_exceptions.ClientError:
-            table = cls.get()
-        return table
+        if cls._table is None:
+            try:
+                cls._table = cls.create()
+            except boto_exceptions.ClientError:
+                cls._table = cls.get()
+        return cls._table
 
     def __getattr__(self, item):
+        """
+        routing attr to boto3 table
+        :param item:
+        :return:
+        """
         table = self.table()
         return getattr(table, item)
