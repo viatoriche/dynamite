@@ -1,0 +1,5 @@
+S = 'S'
+HASH = 'HASH'
+RANGE = 'RANGE'
+
+STRING = S
