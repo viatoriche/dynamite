@@ -129,7 +129,6 @@ class Table(Singleton):
     hash = ('id', defines.STRING,)
     ranges = []
     hash_type = defines.STRING
-    range_types = []
     read_capacity_units = 5
     write_capacity_units = 5
     _table = None
