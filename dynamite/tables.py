@@ -147,6 +147,9 @@ class Table(Singleton):
         """
         return self.table()
 
+    def get_map_attr(self, *args):
+        return '.'.join([str(arg) for arg in args if arg])
+
     @classmethod
     def connection(cls):
         if cls._connection is None:
