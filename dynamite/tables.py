@@ -19,7 +19,6 @@ class Singleton(object):
 class KeyValidationError(ValueError):
     pass
 
-
 class TableItems(object):
     def generate_hash(self):
         return str(uuid.uuid4())
@@ -125,7 +124,6 @@ class TableItems(object):
 class Table(Singleton):
     name = None
     _connection = None
-    conn_options = None
     hash = ('id', defines.STRING,)
     ranges = []
     hash_type = defines.STRING
@@ -134,6 +132,8 @@ class Table(Singleton):
     _table = None
 
     items = TableItems()
+
+    Connection = connection.Connection
 
     def __str__(self):
         return self.table().__str__()
@@ -151,12 +151,14 @@ class Table(Singleton):
         return '.'.join([str(arg) for arg in args if arg])
 
     @classmethod
-    def connection(cls):
+    def get_connection(cls):
         if cls._connection is None:
-            if cls.conn_options is None:
-                cls.conn_options = {}
-            cls._connection = connection.Connection(**cls.conn_options)
+            cls._connection = cls.Connection()
         return cls._connection
+
+    @property
+    def connection(self):
+        return self.get_connection()
 
     @classmethod
     def get_key_schema(cls):
@@ -204,9 +206,7 @@ class Table(Singleton):
 
     @classmethod
     def create(cls):
-        connection = cls.connection()
-
-        table = connection.create_table(
+        table = cls.get_connection().create_table(
             TableName=cls.name,
             KeySchema=cls.get_key_schema(),
             AttributeDefinitions=cls.get_attribute_definitions(),
@@ -220,8 +220,7 @@ class Table(Singleton):
 
     @classmethod
     def get(cls):
-        connection = cls.connection()
-        table = connection.Table(cls.name)
+        table = cls.get_connection().Table(cls.name)
         return table
 
     @classmethod
