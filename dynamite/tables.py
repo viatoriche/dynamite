@@ -3,21 +3,12 @@ import uuid
 from botocore import exceptions as boto_exceptions
 from dynamite import connection
 from dynamite import defines
+from dynamite.patterns import Singleton
 
-class Singleton(object):
-    """Singleton class"""
-
-    __instances = {}
-
-    def __new__(cls, *args, **kwargs):
-        instance = Singleton.__instances.get(cls)
-        if instance is None:
-            Singleton.__instances[cls] = object.__new__(cls, *args, **kwargs)
-            instance = Singleton.__instances[cls]
-        return instance
 
 class KeyValidationError(ValueError):
     pass
+
 
 class TableItems(object):
     def generate_hash(self):
@@ -240,3 +231,8 @@ class Table(Singleton):
         """
         table = self.table()
         return getattr(table, item)
+
+
+def build_table(classname, **kwargs):
+    kwargs['name'] = kwargs.pop('name', classname)
+    return type(classname, (Table,), kwargs)

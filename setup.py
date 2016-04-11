@@ -35,5 +35,5 @@ setup(
     description='Dynamite ORM',
     url='https://github.com/viatoriche/dynamite',
     download_url='https://github.com/viatoriche/dynamite/tarball/{}'.format(version),
-    install_requires=['boto3'],
+    install_requires=['boto3', 'addict'],
 )

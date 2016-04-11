@@ -1,6 +1,10 @@
 import unittest
 
+import dynamite.fields
 from dynamite import connection
+from dynamite import config
+
+config.Config().DEFAULT_CONNECTION.endpoint_url = 'http://localhost:8000'
 
 def get_random_string(length=16):
     import random
@@ -18,11 +22,10 @@ class TestConnection(unittest.TestCase):
 
         from dynamite import connection
 
-        class TestConnection(connection.Connection):
-            endpoint_url = connection.ConnectionOption('http://localhost:8000')
-
-        conn = TestConnection()
-        self.assertEqual(conn.meta.client._endpoint.host, conn.options['endpoint_url'])
+        # class TestConnection(connection.Connection):
+        #     endpoint_url = connection.ConnectionOption('http://localhost:8000')
+        conn = connection.Connection()
+        self.assertEqual(conn.meta.client._endpoint.host, config.Config().DEFAULT_CONNECTION.endpoint_url)
         self.assertEqual(conn.meta.client._client_config.region_name, 'us-east-1')
 
     def test_option(self):
@@ -50,6 +53,20 @@ class TestConnection(unittest.TestCase):
 
         self.assertEqual(t.connection.meta.client._endpoint.host, 'http://localhost:8000')
         self.assertEqual(t.connection.meta.client._client_config.region_name, 'eu-central-1')
+
+
+        Default = connection.build_connection('DefaultConnection', region_name='eu-central-1', endpoint_url='http://localhost:8000')
+
+        class MyTable(tables.Table):
+            name = get_random_string()
+
+            Connection = Default
+
+        t = MyTable()
+
+        self.assertEqual(t.connection.meta.client._endpoint.host, 'http://localhost:8000')
+        self.assertEqual(t.connection.meta.client._client_config.region_name, 'eu-central-1')
+
 
 class TestTables(unittest.TestCase):
 
@@ -117,6 +134,50 @@ class TestTables(unittest.TestCase):
 
         TestTable().delete()
 
+
+    def test_table_with_schema(self):
+        from dynamite import tables, schema
+        class MyTable(tables.Table):
+            name = get_random_string()
+
+            class Connection(connection.Connection):
+
+                endpoint_url = connection.ConnectionOption('http://localhost:8000')
+                region_name = connection.ConnectionOption('eu-central-1')
+
+        t = MyTable()
+
+        class MyInlineSchema(schema.Schema):
+            name = dynamite.fields.StrField()
+
+        class MySchema(schema.Schema):
+            inline_schema = dynamite.fields.SchemaField(MyInlineSchema)
+
+        s = MySchema()
+        s.inline_schema.name = 'cool name'
+
+        item = s.to_db()
+        created, item = t.items.create(item)
+        t.items.get(item)
+
+        b = MySchema()
+        a = b.to_python(item)
+        self.assertEqual(a, b)
+        self.assertEqual(a.inline_schema.name, 'cool name')
+
+        t.delete()
+
+    def test_fabric(self):
+        from dynamite import tables
+
+        Default = connection.build_connection('DefaultConnection', region_name='eu-central-1', endpoint_url='http://localhost:8000')
+
+        t1 = tables.build_table('NewTable', name=get_random_string(), Connection=Default)
+        t2 = tables.build_table('NewTable2', name=get_random_string(), Connection=Default)
+        t1().delete()
+        t2().delete()
+
+
 class TestSchema(unittest.TestCase):
 
     def test_schema(self):
@@ -124,28 +185,28 @@ class TestSchema(unittest.TestCase):
         from dynamite import schema
 
         class InSchemaTwo(schema.Schema):
-            name = schema.StrField(default='in_schema_2')
+            name = dynamite.fields.StrField(default='in_schema_2')
 
         class InSchema(schema.Schema):
-            name = schema.UnicodeField(default=u'in_schema_1')
-            in_schema = schema.SchemaField(InSchemaTwo)
+            name = dynamite.fields.UnicodeField(default=u'in_schema_1')
+            in_schema = dynamite.fields.SchemaField(InSchemaTwo)
 
         class MySchema(schema.Schema):
 
-            arg_str = schema.StrField(default='default')
-            arg_list = schema.ListField()
-            arg_dict = schema.DictField()
-            arg_unicode = schema.UnicodeField(default=u'unicode')
-            def_arg_dict = schema.DictField(default={'2': 2})
-            arg_b64 = schema.Base64Field()
-            arg_pickle = schema.PickleField()
-            in_schema = schema.SchemaField(InSchema)
+            arg_str = dynamite.fields.StrField(default='default')
+            arg_list = dynamite.fields.ListField()
+            arg_dict = dynamite.fields.DictField()
+            arg_unicode = dynamite.fields.UnicodeField(default=u'unicode')
+            def_arg_dict = dynamite.fields.DictField(default={'2': 2})
+            arg_b64 = dynamite.fields.Base64Field()
+            arg_pickle = dynamite.fields.PickleField()
+            in_schema = dynamite.fields.SchemaField(InSchema)
 
         my_schema = MySchema()
 
         self.assertEqual(my_schema.arg_str, 'default')
 
-        self.assertFalse(isinstance(my_schema.arg_str, schema.BaseField))
+        self.assertFalse(isinstance(my_schema.arg_str, dynamite.fields.BaseField))
 
         my_schema.arg_str = '123'
         self.assertEqual(my_schema.arg_str, '123')
@@ -153,7 +214,7 @@ class TestSchema(unittest.TestCase):
         def test_valid():
             my_schema.arg_str = 123
 
-        self.assertRaises(schema.SchemaValidationError, test_valid)
+        self.assertRaises(dynamite.fields.SchemaValidationError, test_valid)
         my_schema.arg_dict = {'1': '2'}
         self.assertEqual(my_schema.arg_dict['1'], '2')
         my_schema.arg_list = [1, 2]
@@ -200,3 +261,31 @@ class TestSchema(unittest.TestCase):
         d = {'in_schema': []}
 
         self.assertRaises(ValueError, lambda: my_schema.to_python(d))
+
+        s = MySchema(arg_str='jopka')
+        self.assertEqual(s.arg_str, 'jopka')
+
+class TestModels(unittest.TestCase):
+
+    def test_models(self):
+
+        from dynamite import models
+
+        class MyModel(models.Model):
+            name = dynamite.fields.StrField()
+
+        record = MyModel(name='jopka')
+
+        self.assertEqual(record.name, 'jopka')
+        record.save()
+        t = MyModel().table
+        item = t.items.get(record.to_db())
+        self.assertEqual(item['name'], record.name)
+
+        record.name = 'new name'
+        record.save()
+
+        t = MyModel().table
+
+        item = t.items.get(record.to_db())
+        self.assertEqual(item['name'], record.name)

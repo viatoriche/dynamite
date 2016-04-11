@@ -1,4 +1,5 @@
 import boto3
+from dynamite.config import Config
 
 class ConnectionOption(object):
 
@@ -13,7 +14,12 @@ class Connection(object):
     region_name = ConnectionOption('us-east-1')
 
     def __init__(self):
-        self._db = boto3.resource('dynamodb', **self.options)
+        config = Config().get(
+            'DEFAULT_CONNECTION', {}
+        ).copy()
+        config.update(self.options)
+        self.config = config
+        self._db = boto3.resource('dynamodb', **self.config)
 
     def __getattr__(self, item):
         return getattr(self._db, item)
@@ -30,3 +36,7 @@ class Connection(object):
     @property
     def options(self):
         return self.get_options()
+
+def build_connection(classname, **kwargs):
+    kwargs = {k: ConnectionOption(kwargs[k]) for k in kwargs}
+    return type(classname, (Connection, ), kwargs)
