@@ -3,7 +3,6 @@ import uuid
 from botocore import exceptions as boto_exceptions
 from dynamite import connection
 from dynamite import defines
-from dynamite.patterns import Singleton
 
 
 class KeyValidationError(ValueError):
@@ -11,8 +10,6 @@ class KeyValidationError(ValueError):
 
 
 class TableItems(object):
-
-
     def __init__(self, table=None, max_recursion_create=5):
         self.table = table
         self.max_recursion_create = max_recursion_create
@@ -92,7 +89,7 @@ class TableItems(object):
         item.update(key)
         hash_attr = self.get_hash_from_item(item)
         if not hash_attr:
-            hash_attr = self.table.hash_generator(self.table)
+            hash_attr = self.table.hash_generator()
             key.update(self.generate_key(hash_attr=hash_attr))
 
         item.update(key)
@@ -100,9 +97,9 @@ class TableItems(object):
         if self.get(item=item) is None:
             return self.put(item=item)
         else:
-            hash_attr = self.table.hash_generator(self.table)
+            hash_attr = self.table.hash_generator()
             item.update(self.generate_key(hash_attr=hash_attr))
-            return self.create(item=item, _recurse_count=_recurse_count+1)
+            return self.create(item=item, _recurse_count=_recurse_count + 1)
 
     def scan(self, **options):
         response = self.table.scan(**options)
@@ -120,153 +117,138 @@ class TableItems(object):
         return items
 
 
-class Table(Singleton):
-    name = None
-    _connection = None
-    hash_attr = ('id', defines.STRING,)
-    range_attr = []
-    read_capacity_units = 5
-    write_capacity_units = 5
-    _table = None
-
-    items = TableItems()
-
-    Connection = connection.Connection
-
-    @staticmethod
+class Table(object):
     def hash_generator(table):
         return str(uuid.uuid4())
 
     def __str__(self):
-        return self.table().__str__()
+        return self.table.__str__()
 
-    def __init__(self):
+    def __init__(self, name, hash_attr=None, range_attr=None, items=None, read_capacity_units=5,
+                 write_capacity_units=5, hash_generator=None):
+        self.name = name
+        if hash_attr is None:
+            hash_attr = ('id', defines.STRING,)
+        self.hash_attr = hash_attr
+        if range_attr is None:
+            range_attr = []
+        self.range_attr = range_attr
+
+        self.read_capacity_units = read_capacity_units
+        self.write_capacity_units = write_capacity_units
+        self._table = None
+        if items is None:
+            items = TableItems(self)
+
+        self.items = items
         self.items.table = self
+        if hash_generator is not None:
+            self.hash_generator = hash_generator
 
     def __call__(self, *args, **kwargs):
         """
         get boto3 table
         """
-        return self.table()
+        return self.table
 
     def get_map_attr(self, *args):
         return '.'.join([str(arg) for arg in args if arg])
 
-    @classmethod
-    def get_connection(cls):
-        if cls._connection is None:
-            cls._connection = cls.Connection()
-        return cls._connection
-
     @property
     def connection(self):
-        return self.get_connection()
+        return connection.Connection()
 
-    @classmethod
-    def get_hash_schema(cls):
+    def get_hash_schema(self):
         return {
-            'AttributeName': cls.get_hash_name(),
+            'AttributeName': self.get_hash_name(),
             'KeyType': defines.HASH,
         }
 
-    @classmethod
-    def get_range_schema(cls):
-        if cls.range_attr:
+    def get_range_schema(self):
+        if self.range_attr:
             return {
-                'AttributeName': cls.get_range_name(),
+                'AttributeName': self.get_range_name(),
                 'KeyType': defines.RANGE,
             }
         else:
             return {}
 
-    @classmethod
-    def get_key_schema(cls):
+    def get_key_schema(self):
+        return [value for value in [self.get_hash_schema(), self.get_range_schema()] if value]
 
-        return [value for value in [cls.get_hash_schema(), cls.get_range_schema()] if value]
-
-    @classmethod
-    def get_range_attribute_list(cls):
-        if cls.range_attr:
+    def get_range_attribute_list(self):
+        if self.range_attr:
             return [
                 {
-                    'AttributeName': cls.get_range_name(),
-                    'AttributeType': cls.get_range_type(),
+                    'AttributeName': self.get_range_name(),
+                    'AttributeType': self.get_range_type(),
                 }
             ]
         return []
 
-    @classmethod
-    def get_hash_attribute_list(cls):
+    def get_hash_attribute_list(self):
         return [
-             {
-                 'AttributeName': cls.get_hash_name(),
-                 'AttributeType': cls.get_hash_type(),
-             }
+            {
+                'AttributeName': self.get_hash_name(),
+                'AttributeType': self.get_hash_type(),
+            }
         ]
 
-    @classmethod
-    def get_hash_name(cls):
-        return cls.hash_attr[0]
+    def get_hash_name(self):
+        return self.hash_attr[0]
 
-    @classmethod
-    def get_hash_type(cls):
-        return cls.hash_attr[1]
+    def get_hash_type(self):
+        return self.hash_attr[1]
 
-    @classmethod
-    def get_range_name(cls):
-        if cls.range_attr:
-            return cls.range_attr[0]
+    def get_range_name(self):
+        if self.range_attr:
+            return self.range_attr[0]
 
-    @classmethod
-    def get_range_type(cls):
-        if cls.range_attr:
-            return cls.range_attr[1]
+    def get_range_type(self):
+        if self.range_attr:
+            return self.range_attr[1]
 
-    @classmethod
-    def get_attribute_definitions(cls):
-        return cls.get_hash_attribute_list() + cls.get_range_attribute_list()
+    def get_attribute_definitions(self):
+        return self.get_hash_attribute_list() + self.get_range_attribute_list()
 
-    @classmethod
-    def create(cls):
-        table = cls.get_connection().create_table(
-            TableName=cls.name,
-            KeySchema=cls.get_key_schema(),
-            AttributeDefinitions=cls.get_attribute_definitions(),
+    def _create(self):
+        table = self.connection.create_table(
+            TableName=self.name,
+            KeySchema=self.get_key_schema(),
+            AttributeDefinitions=self.get_attribute_definitions(),
             ProvisionedThroughput={
-                'ReadCapacityUnits': cls.read_capacity_units,
-                'WriteCapacityUnits': cls.write_capacity_units,
+                'ReadCapacityUnits': self.read_capacity_units,
+                'WriteCapacityUnits': self.write_capacity_units,
             },
         )
-        table.meta.client.get_waiter('table_exists').wait(TableName=cls.name)
+        table.meta.client.get_waiter('table_exists').wait(TableName=self.name)
         return table
 
-    @classmethod
-    def update(cls):
-        result = cls.table().update(
-            AttributeDefinitions=cls.get_attribute_definitions(),
+    def update(self):
+        result = self.table.update(
+            AttributeDefinitions=self.get_attribute_definitions(),
             ProvisionedThroughput={
-                'ReadCapacityUnits': cls.read_capacity_units,
-                'WriteCapacityUnits': cls.write_capacity_units,
+                'ReadCapacityUnits': self.read_capacity_units,
+                'WriteCapacityUnits': self.write_capacity_units,
             },
         )
         return result
 
-    @classmethod
-    def get(cls):
-        table = cls.get_connection().Table(cls.name)
+    def _get_table(self):
+        table = self.connection.Table(self.name)
         return table
 
-    @classmethod
-    def table(cls):
-        if cls._table is None:
+    @property
+    def table(self):
+        if self._table is None:
             try:
-                cls._table = cls.create()
+                self._table = self._create()
             except boto_exceptions.ClientError as e:
                 if e.response['Error']['Code'] == u'ResourceInUseException':
-                    cls._table = cls.get()
+                    self._table = self._get_table()
                 else:
                     raise e
-        return cls._table
+        return self._table
 
     def __getattr__(self, item):
         """
@@ -274,10 +256,4 @@ class Table(Singleton):
         :param item:
         :return:
         """
-        table = self.table()
-        return getattr(table, item)
-
-
-def build_table(classname, **kwargs):
-    kwargs['name'] = kwargs.pop('name', classname)
-    return type(classname, (Table,), kwargs)
+        return getattr(self.table, item)

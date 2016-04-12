@@ -1,42 +1,32 @@
 import boto3
-from dynamite.config import Config
+from dynamite.config import dynamite_options
+from dynamite.patterns import Singleton
 
-class ConnectionOption(object):
+if not dynamite_options.CONNECTION.region_name:
+    dynamite_options.CONNECTION.region_name = 'us-east-1'
 
-    def __init__(self, value):
-        self.value = value
+class Connection(Singleton):
 
-    def __call__(self):
-        return self.value
+    _db = None
+    config = None
 
-class Connection(object):
+    def __init__(self, **options):
+        if self.config is None:
+            self.config = {}
+            self.update_config(**options)
+        if self._db is None:
+            self._db = self.get_resource()
 
-    region_name = ConnectionOption('us-east-1')
+    def update_config(self, **options):
+        self.config.update(dynamite_options['CONNECTION'])
+        self.config.update(options)
 
-    def __init__(self):
-        config = Config().get(
-            'DEFAULT_CONNECTION', {}
-        ).copy()
-        config.update(self.options)
-        self.config = config
-        self._db = boto3.resource('dynamodb', **self.config)
+    def get_resource(self):
+        return boto3.resource('dynamodb', **self.config)
+
+    def rebuild(self, **options):
+        self.update_config(**options)
+        self._db = self.get_resource()
 
     def __getattr__(self, item):
         return getattr(self._db, item)
-
-    @classmethod
-    def get_options(cls):
-        options = {}
-        for elem in dir(cls):
-            attr = getattr(cls, elem)
-            if isinstance(attr, ConnectionOption):
-                options[elem] = attr.value
-        return options
-
-    @property
-    def options(self):
-        return self.get_options()
-
-def build_connection(classname, **kwargs):
-    kwargs = {k: ConnectionOption(kwargs[k]) for k in kwargs}
-    return type(classname, (Connection, ), kwargs)

@@ -1,46 +1,62 @@
-from schema import Schema
-import tables
+from dynamite.schema import Schema
+from dynamite.tables import Table
+
 
 class Model(Schema):
+    _table = None
+    read_capacity_units = 5
+    write_capacity_units = 5
 
-    Table = None
-
+    # @classmethod
     hash_generator = None
 
     def __init__(self, **kwargs):
         self.key = kwargs.pop('key', {})
-        self.hash_generator = kwargs.pop('hash_generator', self.hash_generator)
-        if self.Table is None:
-            self.Table = kwargs.pop('Table', None)
-        self.build_table()
-        if self.hash_generator is not None:
-            self.Table.hash_generator = self.hash_generator
         super(Model, self).__init__(**kwargs)
-        if self._range_field is not None:
-            self.Table.range_attr = [self._range_field, self.fields[self._range_field].db_type]
-        if self._hash_field is not None:
-            self.Table.hash_attr = [self._hash_field, self.fields[self._hash_field].db_type]
-        self.table = self.Table()
-        self.items = self.table.items
+        if self.__class__._table is None:
+            self.init_table()
 
-    def build_table(self):
-        if self.Table is None:
-            self.Table = tables.build_table(
-                self.get_table_name(),
-            )
+    @classmethod
+    def init_table(cls):
+        cls.get_fields()
+        range_attr = None
+        if cls._range_field is not None:
+            range_attr = [cls._range_field, cls._fields[cls._range_field].db_type]
+        hash_attr = None
+        if cls._hash_field is not None:
+            hash_attr = [cls._hash_field, cls._fields[cls._hash_field].db_type]
+        cls._table = Table(
+            name=cls.get_table_name(),
+            hash_attr=hash_attr,
+            range_attr=range_attr,
+            read_capacity_units=cls.read_capacity_units,
+            write_capacity_units=cls.write_capacity_units,
+            hash_generator=cls.hash_generator,
+        )
 
-    def get_table_name(self):
-        return '{}Table'.format(self.__class__.__name__)
+    @classmethod
+    def table(cls):
+        if cls._table is None:
+            cls.init_table()
+        return cls._table
+
+    @classmethod
+    def items(cls):
+        return cls.table().items
+
+    @classmethod
+    def get_table_name(cls):
+        return cls.__name__
 
     def save(self):
         if not self.key:
-            created, item = self.items.create(item=self.to_db())
+            created, item = self.table().items.create(item=self.to_db())
             if created:
                 self.to_python(item)
             if not created:
                 raise RuntimeError('Item not created')
         else:
-            self.items.put(item=self.to_db())
+            self.table().items.put(item=self.to_db())
 
     def to_db(self, data=None):
         item = super(Model, self).to_db(data)
@@ -48,5 +64,5 @@ class Model(Schema):
         return item
 
     def to_python(self, data):
-        self.key = self.items.get_key_from_item(data)
+        self.key = self.table().items.get_key_from_item(data)
         return super(Model, self).to_python(data)

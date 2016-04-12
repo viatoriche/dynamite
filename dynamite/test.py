@@ -1,10 +1,9 @@
 import unittest
 
 import dynamite.fields
-from dynamite import connection
 from dynamite.config import dynamite_options
 
-dynamite_options.DEFAULT_CONNECTION.endpoint_url = 'http://localhost:8000'
+dynamite_options['CONNECTION']['endpoint_url'] = 'http://localhost:8000'
 
 def get_random_string(length=16):
     import random
@@ -13,56 +12,30 @@ def get_random_string(length=16):
     result = ''.join(result)[:length]
     return result
 
-class MyConnection(connection.Connection):
-    endpoint_url = connection.ConnectionOption('http://localhost:8000')
-
 class TestConnection(unittest.TestCase):
 
     def test_connections(self):
 
         from dynamite import connection
 
-        # class TestConnection(connection.Connection):
-        #     endpoint_url = connection.ConnectionOption('http://localhost:8000')
         conn = connection.Connection()
-        self.assertEqual(conn.meta.client._endpoint.host, dynamite_options.DEFAULT_CONNECTION.endpoint_url)
+        self.assertEqual(conn.meta.client._endpoint.host, dynamite_options['CONNECTION']['endpoint_url'])
         self.assertEqual(conn.meta.client._client_config.region_name, 'us-east-1')
-
-    def test_option(self):
-
-        from dynamite import connection
-
-        option = connection.ConnectionOption('123')
-
-        self.assertEqual(option(), '123')
-        self.assertEqual(option.value, '123')
 
     def test_in_table(self):
 
         from dynamite import connection, tables
 
-        class MyTable(tables.Table):
-            name = get_random_string()
+        dynamite_options['CONNECTION']['region_name'] = 'eu-central-1'
+        connection.Connection().rebuild()
 
-            class Connection(connection.Connection):
-
-                endpoint_url = connection.ConnectionOption('http://localhost:8000')
-                region_name = connection.ConnectionOption('eu-central-1')
-
-        t = MyTable()
+        t = tables.Table(get_random_string())
 
         self.assertEqual(t.connection.meta.client._endpoint.host, 'http://localhost:8000')
         self.assertEqual(t.connection.meta.client._client_config.region_name, 'eu-central-1')
 
 
-        Default = connection.build_connection('DefaultConnection', region_name='eu-central-1', endpoint_url='http://localhost:8000')
-
-        class MyTable(tables.Table):
-            name = get_random_string()
-
-            Connection = Default
-
-        t = MyTable()
+        t = tables.Table(get_random_string())
 
         self.assertEqual(t.connection.meta.client._endpoint.host, 'http://localhost:8000')
         self.assertEqual(t.connection.meta.client._client_config.region_name, 'eu-central-1')
@@ -72,18 +45,12 @@ class TestTables(unittest.TestCase):
 
     def test_create_table(self):
 
-        from dynamite import tables, connection
+        from dynamite import tables
         from boto3.dynamodb.conditions import Key, Attr
 
         table_name = get_random_string()
 
-        class TestTable(tables.Table):
-
-            name = table_name
-            Connection = MyConnection
-
-
-        table = TestTable()
+        table = tables.Table(table_name)
         created1, item1 = table.items.create(hash_attr='123', item={'jopa': '1'})
         created2, item2 = table.items.create(hash_attr='123', item={'jopa': '2'})
         created3, item3 = table.items.create(item={'jopa': 'hahahaha'})
@@ -112,40 +79,20 @@ class TestTables(unittest.TestCase):
         created, new_item = table.items.create(hash_attr='345')
         self.assertEqual(new_item['id'], '345')
 
-        # singleton test
-        class TestTable2(tables.Table):
-
-            name = table_name
-            Connection = MyConnection
-
-        self.assertEqual(TestTable(), TestTable())
-        self.assertNotEqual(TestTable(), TestTable2())
-
-        self.assertEqual(TestTable2().items.get(new_item), TestTable().items.get(new_item))
-        t = TestTable()
-        self.assertEqual(t.table(), t())
-        str(t)
-
         item = {'key1': {'key2': {'key3': 'data3'}}, 'key4': 'data4'}
-        t.items.create(item=item)
-        results = t.items.scan(FilterExpression=Attr('key1.key2.key3').exists())
+        table.items.create(item=item)
+        results = table.items.scan(FilterExpression=Attr('key1.key2.key3').exists())
         self.assertEqual(results[0]['key1'], item['key1'])
-        t.items.query(KeyConditionExpression=Key(t.get_hash_name()).eq(results[0][t.get_hash_name()]))
+        table.items.query(KeyConditionExpression=Key(table.get_hash_name()).eq(results[0][table.get_hash_name()]))
 
-        TestTable().delete()
+        table.delete()
 
 
     def test_table_with_schema(self):
         from dynamite import tables, schema
-        class MyTable(tables.Table):
-            name = get_random_string()
+        table_name = get_random_string()
 
-            class Connection(connection.Connection):
-
-                endpoint_url = connection.ConnectionOption('http://localhost:8000')
-                region_name = connection.ConnectionOption('eu-central-1')
-
-        t = MyTable()
+        t = tables.Table(table_name)
 
         class MyInlineSchema(schema.Schema):
             name = dynamite.fields.StrField()
@@ -166,17 +113,6 @@ class TestTables(unittest.TestCase):
         self.assertEqual(a.inline_schema.name, 'cool name')
 
         t.delete()
-
-    def test_fabric(self):
-        from dynamite import tables
-
-        Default = connection.build_connection('DefaultConnection', region_name='eu-central-1', endpoint_url='http://localhost:8000')
-
-        t1 = tables.build_table('NewTable', name=get_random_string(), Connection=Default)
-        t2 = tables.build_table('NewTable2', name=get_random_string(), Connection=Default)
-        t1().delete()
-        t2().delete()
-
 
 class TestSchema(unittest.TestCase):
 
@@ -278,21 +214,22 @@ class TestModels(unittest.TestCase):
 
     def test_models(self):
 
-        from dynamite import models
+        from dynamite import models, tables
 
         add_name = get_random_string()
 
         class MyModel(models.Model):
             name = dynamite.fields.StrField()
 
-            def get_table_name(self):
-                return '{}Table_{}'.format(self.__class__.__name__, add_name)
+            @classmethod
+            def get_table_name(cls):
+                return '{}Table_{}'.format(cls.__name__, add_name)
 
         record = MyModel(name='jopka')
 
         self.assertEqual(record.name, 'jopka')
         record.save()
-        t = MyModel().table
+        t = MyModel.table()
         item = t.items.get(record.to_db())
         self.assertNotEqual(item, None)
         self.assertEqual(item['name'], record.name)
@@ -300,30 +237,49 @@ class TestModels(unittest.TestCase):
         record.name = 'new name'
         record.save()
 
-        t = MyModel().table
+        t = MyModel.table()
 
         item = t.items.get(record.to_db())
         self.assertEqual(item['name'], record.name)
 
         t.delete()
 
-        def my_hash_generator(model, table):
-            return model.fields[model._hash_field].default
 
         class ModelIDRange(models.Model):
 
             custom_id = dynamite.fields.StrField(hash_field=True, default='my_super_hash')
             custom_range = dynamite.fields.StrField(range_field=True)
+            name = dynamite.fields.StrField(default=lambda: 'name')
 
-            hash_generator = my_hash_generator
+            @classmethod
+            def hash_generator(cls):
+                return 'my_super_hash'
 
-            def get_table_name(self):
-                return '{}Table_{}'.format(self.__class__.__name__, add_name)
+            @classmethod
+            def get_table_name(cls):
+                return '{}Table_{}'.format(cls.__name__, add_name)
 
         m = ModelIDRange(custom_range='CUSTOM_RANGE')
         m.save()
-        t = m.table
+        t = m.table()
         self.assertEqual(m.custom_range, 'CUSTOM_RANGE')
         self.assertEqual(m.custom_id, 'my_super_hash')
+        self.assertEqual(m.name, 'name')
         self.assertRaises(RuntimeError, lambda: ModelIDRange(custom_range='CUSTOM_RANGE').save())
+
+        class NewModel(models.Model):
+
+            @classmethod
+            def get_table_name(cls):
+                return 'test_non_create'
+
+        class NewModel2(models.Model):
+
+            @classmethod
+            def get_table_name(cls):
+                return 'test_non_create'
+
+        NewModel.table().scan()
+        NewModel2.table().scan()
+
         t.delete()

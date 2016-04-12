@@ -1,26 +1,31 @@
 class Schema(object):
     _state = None
     _fields = None
+    _range_field = None
+    _hash_field = None
+
     defaults_to_python = False
 
     def __init__(self, **kwargs):
         self._state = {}
-        self._fields = self.get_fields()
+        if self.__class__._fields is None:
+            self.get_fields()
         self.init_state()
         for key in kwargs:
             if key in self.fields:
                 self.set_state(key, kwargs[key])
-        self._range_field = None
-        self._hash_field = None
-        for field in self.fields:
-            if self.fields[field]._range:
-                self._range_field = field
-            if self.fields[field]._hash:
-                self._hash_field = field
+
+    def get_default_value(self, field):
+        value = self.fields[field].default
+        if callable(value):
+            value = value()
+        return value
+
 
     def init_state(self):
         for field in self.fields:
-            self.set_state(field, self.fields[field].default)
+            value = self.get_default_value(field)
+            self.set_state(field, value)
 
     def set_state(self, name, value):
         self.fields[name].validate(value)
@@ -35,11 +40,17 @@ class Schema(object):
     @classmethod
     def get_fields(cls):
         from dynamite.fields import BaseField
-        return {elem: getattr(cls, elem) for elem in dir(cls) if isinstance(getattr(cls, elem), BaseField)}
+        cls._fields = {elem: getattr(cls, elem) for elem in dir(cls) if isinstance(getattr(cls, elem), BaseField)}
+
+        for field in cls._fields:
+            if cls._fields[field]._range:
+                cls._range_field = field
+            if cls._fields[field]._hash:
+                cls._hash_field = field
 
     @property
     def fields(self):
-        return self._fields
+        return self.__class__._fields
 
     @property
     def state(self):
@@ -71,7 +82,7 @@ class Schema(object):
             if field in data:
                 value = self.fields[field].to_python(data[field])
             elif self.defaults_to_python:
-                value = self.fields[field].default
+                value = self.get_default_value(field)
             if value is not None:
                 self.set_state(field, value)
         return self
