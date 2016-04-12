@@ -73,7 +73,10 @@ class Schema(object):
             data = self.state
         result = {}
         for field in self.fields:
-            result[field] = self.fields[field].to_db(data[field])
+            value = self.fields[field].to_db(data[field])
+            # result[field] = value
+            if value:
+                result[field] = value
         return result
 
     def to_python(self, data):

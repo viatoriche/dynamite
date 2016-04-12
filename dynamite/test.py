@@ -250,6 +250,7 @@ class TestModels(unittest.TestCase):
             custom_id = dynamite.fields.StrField(hash_field=True, default='my_super_hash')
             custom_range = dynamite.fields.StrField(range_field=True)
             name = dynamite.fields.StrField(default=lambda: 'name')
+            empty = dynamite.fields.StrField()
 
             @classmethod
             def hash_generator(cls):
@@ -265,6 +266,7 @@ class TestModels(unittest.TestCase):
         self.assertEqual(m.custom_range, 'CUSTOM_RANGE')
         self.assertEqual(m.custom_id, 'my_super_hash')
         self.assertEqual(m.name, 'name')
+        print 'empty', m.empty
         self.assertRaises(RuntimeError, lambda: ModelIDRange(custom_range='CUSTOM_RANGE').save())
 
         class NewModel(models.Model):
