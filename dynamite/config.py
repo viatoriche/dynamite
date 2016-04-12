@@ -19,4 +19,4 @@ class Config(Singleton):
     def get(self, item, default=None):
         return self.data.get(item, default)
 
-config = Config()
+dynamite_options = Config()

@@ -11,18 +11,23 @@ class KeyValidationError(ValueError):
 
 
 class TableItems(object):
-    def generate_hash(self):
-        return str(uuid.uuid4())
 
-    def __init__(self, table=None):
+
+    def __init__(self, table=None, max_recursion_create=5):
         self.table = table
+        self.max_recursion_create = max_recursion_create
 
-    def generate_key(self, item=None, hash_attr=None, ranges=None):
+    def generate_key(self, item=None, hash_attr=None, range_attr=None):
         key = {}
         if item is not None:
             key.update(self.get_key_from_item(item))
-        if ranges is None:
-            ranges = {}
+        if range_attr is not None:
+            range_name = self.table.get_range_name()
+            key.update(
+                {
+                    range_name: range_attr,
+                }
+            )
         if hash_attr is not None:
             hash_name = self.table.get_hash_name()
             key.update(
@@ -30,39 +35,39 @@ class TableItems(object):
                     hash_name: hash_attr,
                 }
             )
-        key.update({rng: ranges[rng] for rng in ranges if ranges[rng] is not None})
+
         return key
 
     def get_hash_from_item(self, item):
         return item.get(self.table.get_hash_name(), None)
 
-    def get_ranges_from_item(self, item):
-        return {rng: item.get(rng, None) for rng in self.table.ranges if rng in item}
+    def get_range_from_item(self, item):
+        return item.get(self.table.get_range_name(), None)
 
     def get_key_from_item(self, item):
-        hash_key = {self.table.get_hash_name(): self.get_hash_from_item(item)}
-        ranges = self.get_ranges_from_item(item)
-        ranges.update(hash_key)
-        key = {k: ranges[k] for k in ranges if ranges[k] is not None}
+        key = {self.table.get_hash_name(): self.get_hash_from_item(item)}
+        range_value = self.get_range_from_item(item)
+        if range_value is not None:
+            key[self.table.get_range_name()] = range_value
         return key
 
-    def update(self, item=None, hash_attr=None, ranges=None, **options):
-        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
+    def update(self, item=None, hash_attr=None, range_attr=None, **options):
+        key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
 
         options.update({'Key': key})
         response = self.table.update_item(**options)
         result = response['ResponseMetadata']['HTTPStatusCode'] == 200
         return result
 
-    def delete(self, item=None, hash_attr=None, ranges=None):
-        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
+    def delete(self, item=None, hash_attr=None, range_attr=None):
+        key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
 
         response = self.table.delete_item(Key=key)
         result = response['ResponseMetadata']['HTTPStatusCode'] == 200
         return result
 
-    def put(self, item=None, hash_attr=None, ranges=None):
-        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
+    def put(self, item=None, hash_attr=None, range_attr=None):
+        key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
         if item is None:
             item = {}
         item.update(key)
@@ -70,36 +75,34 @@ class TableItems(object):
         result = response['ResponseMetadata']['HTTPStatusCode'] == 200
         return result, item
 
-    def get(self, item=None, hash_attr=None, ranges=None):
-        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
+    def get(self, item=None, hash_attr=None, range_attr=None):
+        key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
         response = self.table.get_item(
             Key=key,
         )
         return response.get('Item', None)
 
-    def create(self, item=None, hash_attr=None, ranges=None):
-        key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
+    def create(self, item=None, hash_attr=None, range_attr=None, _recurse_count=0):
+        if _recurse_count > self.max_recursion_create:
+            raise RuntimeError('Maximum tries for create...')
+        key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
         if item is None:
             item = {}
 
         item.update(key)
         hash_attr = self.get_hash_from_item(item)
-        if hash_attr is None:
-            hash_attr = self.generate_hash()
+        if not hash_attr:
+            hash_attr = self.table.hash_generator(self.table)
             key.update(self.generate_key(hash_attr=hash_attr))
-
-        if ranges is None:
-            ranges = self.get_ranges_from_item(item)
-            key.update(self.generate_key(ranges=ranges))
 
         item.update(key)
 
         if self.get(item=item) is None:
             return self.put(item=item)
         else:
-            hash_attr = self.generate_hash()
+            hash_attr = self.table.hash_generator(self.table)
             item.update(self.generate_key(hash_attr=hash_attr))
-            return self.create(item=item)
+            return self.create(item=item, _recurse_count=_recurse_count+1)
 
     def scan(self, **options):
         response = self.table.scan(**options)
@@ -111,13 +114,17 @@ class TableItems(object):
         items = response.get('Items', [])
         return items
 
+    def all(self):
+        response = self.table.scan()
+        items = response.get('Items', [])
+        return items
+
 
 class Table(Singleton):
     name = None
     _connection = None
-    hash = ('id', defines.STRING,)
-    ranges = []
-    hash_type = defines.STRING
+    hash_attr = ('id', defines.STRING,)
+    range_attr = []
     read_capacity_units = 5
     write_capacity_units = 5
     _table = None
@@ -125,6 +132,10 @@ class Table(Singleton):
     items = TableItems()
 
     Connection = connection.Connection
+
+    @staticmethod
+    def hash_generator(table):
+        return str(uuid.uuid4())
 
     def __str__(self):
         return self.table().__str__()
@@ -152,48 +163,68 @@ class Table(Singleton):
         return self.get_connection()
 
     @classmethod
+    def get_hash_schema(cls):
+        return {
+            'AttributeName': cls.get_hash_name(),
+            'KeyType': defines.HASH,
+        }
+
+    @classmethod
+    def get_range_schema(cls):
+        if cls.range_attr:
+            return {
+                'AttributeName': cls.get_range_name(),
+                'KeyType': defines.RANGE,
+            }
+        else:
+            return {}
+
+    @classmethod
     def get_key_schema(cls):
 
-        key_schema = [
-            {
-                'AttributeName': cls.get_hash_name(),
-                'KeyType': defines.HASH,
-            },
-        ]
+        return [value for value in [cls.get_hash_schema(), cls.get_range_schema()] if value]
 
-        ranges = [
-            {
-                'AttributeName': attr[0],
-                'KeyType': defines.RANGE,
-            } for attr in cls.ranges
+    @classmethod
+    def get_range_attribute_list(cls):
+        if cls.range_attr:
+            return [
+                {
+                    'AttributeName': cls.get_range_name(),
+                    'AttributeType': cls.get_range_type(),
+                }
             ]
-        key_schema += ranges
+        return []
 
-        return key_schema
+    @classmethod
+    def get_hash_attribute_list(cls):
+        return [
+             {
+                 'AttributeName': cls.get_hash_name(),
+                 'AttributeType': cls.get_hash_type(),
+             }
+        ]
 
     @classmethod
     def get_hash_name(cls):
-        return cls.hash[0]
+        return cls.hash_attr[0]
 
     @classmethod
     def get_hash_type(cls):
-        return cls.hash[1]
+        return cls.hash_attr[1]
+
+    @classmethod
+    def get_range_name(cls):
+        if cls.range_attr:
+            return cls.range_attr[0]
+
+    @classmethod
+    def get_range_type(cls):
+        if cls.range_attr:
+            return cls.range_attr[1]
 
     @classmethod
     def get_attribute_definitions(cls):
-
-        attribute_definitions = [
-                                    {
-                                        'AttributeName': cls.get_hash_name(),
-                                        'AttributeType': cls.get_hash_type(),
-                                    }
-                                ] + [
-                                    {
-                                        'AttributeName': attr[0],
-                                        'AttributeType': attr[1],
-                                    } for attr in cls.ranges
-                                    ]
-        return attribute_definitions
+        return cls.get_hash_attribute_list() + cls.get_range_attribute_list()
 
     @classmethod
     def create(cls):
@@ -210,6 +241,17 @@ class Table(Singleton):
         return table
 
     @classmethod
+    def update(cls):
+        result = cls.table().update(
+            AttributeDefinitions=cls.get_attribute_definitions(),
+            ProvisionedThroughput={
+                'ReadCapacityUnits': cls.read_capacity_units,
+                'WriteCapacityUnits': cls.write_capacity_units,
+            },
+        )
+        return result
+
+    @classmethod
     def get(cls):
         table = cls.get_connection().Table(cls.name)
         return table
@@ -219,8 +261,11 @@ class Table(Singleton):
         if cls._table is None:
             try:
                 cls._table = cls.create()
-            except boto_exceptions.ClientError:
-                cls._table = cls.get()
+            except boto_exceptions.ClientError as e:
+                if e.response['Error']['Code'] == u'ResourceInUseException':
+                    cls._table = cls.get()
+                else:
+                    raise e
         return cls._table
 
     def __getattr__(self, item):

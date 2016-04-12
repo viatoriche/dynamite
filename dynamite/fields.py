@@ -2,21 +2,28 @@ import base64
 import cPickle as pickle
 
 from dynamite.schema import Schema
+from dynamite import defines
 
 
 class BaseField(object):
     default = None
-    type = None
+    python_type = None
+    db_type = None
 
-    def __init__(self, default=None):
-        if default is None and self.type is not None:
-            default = self.type()
+    def __init__(self, default=None, range_field=False, hash_field=False, db_type=None):
+        if default is None and self.python_type is not None:
+            default = self.python_type()
+        if db_type is not None:
+            self.db_type = db_type
+        if self.db_type is not None:
+            self._range = range_field
+            self._hash = hash_field
         self.default = default
 
     def validate(self, value):
-        if type is not None:
-            if not isinstance(value, self.type):
-                raise SchemaValidationError(value, self.type)
+        if self.python_type is not None:
+            if not isinstance(value, self.python_type):
+                raise SchemaValidationError(value, self.python_type)
 
     def to_python(self, value):
         return value
@@ -34,7 +41,8 @@ class SchemaValidationError(ValueError):
 
 
 class UnicodeField(BaseField):
-    type = unicode
+    python_type = unicode
+    db_type = defines.STRING
 
     def __init__(self, encoding='utf8', **kwargs):
         self.encoding = encoding
@@ -48,7 +56,8 @@ class UnicodeField(BaseField):
 
 
 class StrField(BaseField):
-    type = str
+    python_type = str
+    db_type = defines.STRING
 
     def __init__(self, encoding='utf8', **kwargs):
         self.encoding = encoding
@@ -65,7 +74,8 @@ class StrField(BaseField):
 
 
 class PickleField(BaseField):
-    type = object
+    db_type = defines.STRING
+    python_type = object
 
     def to_python(self, value):
         return pickle.loads(value)
@@ -75,28 +85,34 @@ class PickleField(BaseField):
 
 
 class IntField(BaseField):
-    type = int
+    python_type = int
+    db_type = defines.NUMBER
 
 
 class FloatField(BaseField):
-    type = float
+    python_type = float
+    db_type = defines.NUMBER
 
 
 class LongField(BaseField):
-    type = long
+    python_type = long
+    db_type = defines.NUMBER
 
 
 class DictField(BaseField):
-    type = dict
+    python_type = dict
+    db_type = defines.MAP
 
 
 class ListField(BaseField):
-    type = list
+    python_type = list
+    db_type = defines.LIST
 
 
 class Base64Field(BaseField):
 
-    type = str
+    python_type = str
+    db_type = defines.STRING
 
     def to_db(self, value):
         return base64.b64encode(value)
@@ -106,10 +122,11 @@ class Base64Field(BaseField):
 
 
 class SchemaField(BaseField):
-    type = Schema
+    python_type = Schema
+    db_type = defines.MAP
 
     def __init__(self, SchemaClass, **kwargs):
-        self.type = SchemaClass
+        self.python_type = SchemaClass
         super(SchemaField, self).__init__(**kwargs)
 
     def to_db(self, value):
@@ -119,7 +136,7 @@ class SchemaField(BaseField):
         """Data may be dict or Schema"""
 
         if isinstance(data, dict):
-            value = self.type()
+            value = self.python_type()
             for key in data:
                 value.set_state(key, value.fields[key].to_python(data[key]))
         elif isinstance(data, Schema):

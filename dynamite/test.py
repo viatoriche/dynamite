@@ -2,9 +2,9 @@ import unittest
 
 import dynamite.fields
 from dynamite import connection
-from dynamite import config
+from dynamite.config import dynamite_options
 
-config.Config().DEFAULT_CONNECTION.endpoint_url = 'http://localhost:8000'
+dynamite_options.DEFAULT_CONNECTION.endpoint_url = 'http://localhost:8000'
 
 def get_random_string(length=16):
     import random
@@ -25,7 +25,7 @@ class TestConnection(unittest.TestCase):
         # class TestConnection(connection.Connection):
         #     endpoint_url = connection.ConnectionOption('http://localhost:8000')
         conn = connection.Connection()
-        self.assertEqual(conn.meta.client._endpoint.host, config.Config().DEFAULT_CONNECTION.endpoint_url)
+        self.assertEqual(conn.meta.client._endpoint.host, dynamite_options.DEFAULT_CONNECTION.endpoint_url)
         self.assertEqual(conn.meta.client._client_config.region_name, 'us-east-1')
 
     def test_option(self):
@@ -202,6 +202,11 @@ class TestSchema(unittest.TestCase):
             arg_pickle = dynamite.fields.PickleField()
             in_schema = dynamite.fields.SchemaField(InSchema)
 
+        class CustomHashRanges(schema.Schema):
+
+            custom_id = dynamite.fields.StrField(hash_field=True)
+            custom_range = dynamite.fields.StrField(range_field=True)
+
         my_schema = MySchema()
 
         self.assertEqual(my_schema.arg_str, 'default')
@@ -265,14 +270,23 @@ class TestSchema(unittest.TestCase):
         s = MySchema(arg_str='jopka')
         self.assertEqual(s.arg_str, 'jopka')
 
+        c = CustomHashRanges()
+        self.assertEqual(c._hash_field, 'custom_id')
+        self.assertEqual(c._range_field, 'custom_range')
+
 class TestModels(unittest.TestCase):
 
     def test_models(self):
 
         from dynamite import models
 
+        add_name = get_random_string()
+
         class MyModel(models.Model):
             name = dynamite.fields.StrField()
+
+            def get_table_name(self):
+                return '{}Table_{}'.format(self.__class__.__name__, add_name)
 
         record = MyModel(name='jopka')
 
@@ -280,6 +294,7 @@ class TestModels(unittest.TestCase):
         record.save()
         t = MyModel().table
         item = t.items.get(record.to_db())
+        self.assertNotEqual(item, None)
         self.assertEqual(item['name'], record.name)
 
         record.name = 'new name'
@@ -289,3 +304,26 @@ class TestModels(unittest.TestCase):
 
         item = t.items.get(record.to_db())
         self.assertEqual(item['name'], record.name)
+
+        t.delete()
+
+        def my_hash_generator(model, table):
+            return model.fields[model._hash_field].default
+
+        class ModelIDRange(models.Model):
+
+            custom_id = dynamite.fields.StrField(hash_field=True, default='my_super_hash')
+            custom_range = dynamite.fields.StrField(range_field=True)
+
+            hash_generator = my_hash_generator
+
+            def get_table_name(self):
+                return '{}Table_{}'.format(self.__class__.__name__, add_name)
+
+        m = ModelIDRange(custom_range='CUSTOM_RANGE')
+        m.save()
+        t = m.table
+        self.assertEqual(m.custom_range, 'CUSTOM_RANGE')
+        self.assertEqual(m.custom_id, 'my_super_hash')
+        self.assertRaises(RuntimeError, lambda: ModelIDRange(custom_range='CUSTOM_RANGE').save())
+        t.delete()

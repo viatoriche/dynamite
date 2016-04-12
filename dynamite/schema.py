@@ -10,6 +10,13 @@ class Schema(object):
         for key in kwargs:
             if key in self.fields:
                 self.set_state(key, kwargs[key])
+        self._range_field = None
+        self._hash_field = None
+        for field in self.fields:
+            if self.fields[field]._range:
+                self._range_field = field
+            if self.fields[field]._hash:
+                self._hash_field = field
 
     def init_state(self):
         for field in self.fields:
