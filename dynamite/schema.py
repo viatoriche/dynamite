@@ -3,6 +3,11 @@ class Schema(object):
     _fields = None
     _range_field = None
     _hash_field = None
+    _ignore_elems = set([])
+
+    @classmethod
+    def _ignore_elem(cls, elem, need_class):
+        return elem.startswith('_') or elem in cls._ignore_elems or getattr(Schema, elem, None) is not None or not isinstance(getattr(cls, elem), need_class)
 
     defaults_to_python = False
 
@@ -40,7 +45,9 @@ class Schema(object):
     @classmethod
     def get_fields(cls):
         from dynamite.fields import BaseField
-        cls._fields = {elem: getattr(cls, elem) for elem in dir(cls) if isinstance(getattr(cls, elem), BaseField)}
+
+        elems = [elem for elem in dir(cls) if not cls._ignore_elem(elem, BaseField)]
+        cls._fields = {elem: getattr(cls, elem) for elem in elems}
 
         for field in cls._fields:
             if cls._fields[field]._range:
@@ -67,6 +74,10 @@ class Schema(object):
         if fields is not None and item in fields:
             return self.get_state(item)
         return super(Schema, self).__getattribute__(item)
+
+    @classmethod
+    def __get_class_attribute__(cls, item):
+        return getattr(Schema, item)
 
     def to_db(self, data=None):
         if data is None:

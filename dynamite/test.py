@@ -214,10 +214,11 @@ class TestModels(unittest.TestCase):
 
     def test_models(self):
 
-        from dynamite import models, tables
+        from dynamite import models, tables, fields
 
         add_name = get_random_string()
 
+        # @models.generate_table
         class MyModel(models.Model):
             name = dynamite.fields.StrField()
 
@@ -225,19 +226,24 @@ class TestModels(unittest.TestCase):
             def get_table_name(cls):
                 return '{}Table_{}'.format(cls.__name__, add_name)
 
+        self.assertEqual(MyModel.hash, 'id')
+        self.assertEqual(MyModel.range, None)
+        self.assertEqual(MyModel.table, MyModel().table)
         record = MyModel(name='jopka')
+
 
         self.assertEqual(record.name, 'jopka')
         record.save()
-        t = MyModel.table()
+        t = MyModel.get_table()
         item = t.items.get(record.to_db())
         self.assertNotEqual(item, None)
         self.assertEqual(item['name'], record.name)
+        self.assertEqual(record.id, record.hk)
 
         record.name = 'new name'
         record.save()
 
-        t = MyModel.table()
+        t = MyModel.get_table()
 
         item = t.items.get(record.to_db())
         self.assertEqual(item['name'], record.name)
@@ -262,11 +268,15 @@ class TestModels(unittest.TestCase):
 
         m = ModelIDRange(custom_range='CUSTOM_RANGE')
         m.save()
-        t = m.table()
+        t = m.get_table()
         self.assertEqual(m.custom_range, 'CUSTOM_RANGE')
         self.assertEqual(m.custom_id, 'my_super_hash')
         self.assertEqual(m.name, 'name')
-        print 'empty', m.empty
+        self.assertEqual(m.empty, '')
+        self.assertEqual(m.hk, m.custom_id)
+        self.assertEqual(m.rk, m.custom_range)
+        self.assertEqual(ModelIDRange.hash, 'custom_id')
+        self.assertEqual(ModelIDRange.range, 'custom_range')
         self.assertRaises(RuntimeError, lambda: ModelIDRange(custom_range='CUSTOM_RANGE').save())
 
         class NewModel(models.Model):
@@ -281,7 +291,7 @@ class TestModels(unittest.TestCase):
             def get_table_name(cls):
                 return 'test_non_create'
 
-        NewModel.table().scan()
-        NewModel2.table().scan()
+        NewModel.get_table().scan()
+        NewModel2.get_table().scan()
 
         t.delete()
