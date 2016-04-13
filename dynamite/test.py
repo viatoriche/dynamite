@@ -41,6 +41,23 @@ class TestConnection(unittest.TestCase):
         self.assertEqual(t.connection.meta.client._client_config.region_name, 'eu-central-1')
 
 
+class TestItems(unittest.TestCase):
+
+    def test_items(self):
+
+        from dynamite import items
+        class FakeTable(object):
+
+            def get_range_name(self):
+                return 'range'
+
+            def get_hash_name(self):
+                return 'hash'
+
+        table_items = items.TableItems(table=FakeTable())
+        self.assertEqual(table_items.generate_key(range_attr='r123', hash_attr='h123')['range'], 'r123')
+        self.assertEqual(table_items.generate_key(range_attr='r123', hash_attr='h123')['hash'], 'h123')
+
 class TestTables(unittest.TestCase):
 
     def test_create_table(self):
@@ -81,9 +98,12 @@ class TestTables(unittest.TestCase):
 
         item = {'key1': {'key2': {'key3': 'data3'}}, 'key4': 'data4'}
         table.items.create(item=item)
-        results = table.items.scan(FilterExpression=Attr('key1.key2.key3').exists())
+        results = list(table.items.scan(FilterExpression=Attr('key1.key2.key3').exists()))
         self.assertEqual(results[0]['key1'], item['key1'])
-        table.items.query(KeyConditionExpression=Key(table.get_hash_name()).eq(results[0][table.get_hash_name()]))
+        results = list(table.items.query(KeyConditionExpression=Key(table.get_hash_name()).eq(results[0][table.get_hash_name()])))
+        self.assertEqual(results[0]['key4'], 'data4')
+        results = list(table.items.all())
+        self.assertEqual(len(results), 5)
 
         table.delete()
 
@@ -112,6 +132,9 @@ class TestTables(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(a.inline_schema.name, 'cool name')
 
+        self.assertEqual(str(t), "<dynamodb.Table(name=u'{}')>".format(t.name))
+        self.assertEqual(t(), t.table)
+        self.assertEqual(t.get_map_attr('1', '2', '3'), '1.2.3')
         t.delete()
 
 class TestSchema(unittest.TestCase):
@@ -191,6 +214,9 @@ class TestSchema(unittest.TestCase):
         two_schema.to_python({'arg_unicode': 'test'})
         self.assertEqual(two_schema.to_db()['arg_unicode'], u'test')
 
+        two_schema.to_python({'in_schema': {'in_schema': {'name': 'new name'}}})
+        self.assertEqual(two_schema.to_db()['in_schema']['in_schema']['name'], 'new name')
+
         two_schema.arg_b64 = 'jopa'
         two_schema.arg_pickle = 'jopa'
 
@@ -210,15 +236,74 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(c._hash_field, 'custom_id')
         self.assertEqual(c._range_field, 'custom_range')
 
+        s['arg_str'] = 'popka'
+        self.assertEqual(s['arg_str'], 'popka')
+        self.assertEqual(s.arg_str, 'popka')
+
+        self.assertEqual(s['none'], None)
+
+        self.assertEqual(str(InSchemaTwo()), '<InSchemaTwo: name=StrField>')
+
 class TestModels(unittest.TestCase):
 
     def test_models(self):
 
-        from dynamite import models, tables, fields
+        from dynamite import models, tables, defines, fields
 
         add_name = get_random_string()
 
-        # @models.generate_table
+        class NameModel(models.Model):
+            pass
+
+        self.assertEqual(NameModel.get_table_name(), 'NameModel')
+
+        class NumberTable(tables.Table):
+
+            def __init__(self, *args, **kwargs):
+                super(NumberTable, self).__init__(*args, **kwargs)
+                self.hash_attr = ('number_id', defines.NUMBER)
+                self.range_attr = ('range_str', defines.STRING)
+
+            def hash_generator(table):
+                import random
+                return random.randint(0, 1024)
+
+        class NumberRangeTable(tables.Table):
+
+            def __init__(self, *args, **kwargs):
+                super(NumberRangeTable, self).__init__(*args, **kwargs)
+                self.range_attr = ('range_int', defines.NUMBER)
+
+        class NumberID(models.Model):
+
+            Table = NumberTable
+
+            @classmethod
+            def get_table_name(cls):
+                return '{}Table_{}'.format(cls.__name__, add_name)
+
+        class NumberRange(models.Model):
+
+            Table = NumberRangeTable
+
+            @classmethod
+            def get_table_name(cls):
+                return '{}Table_{}'.format(cls.__name__, add_name)
+
+        m = NumberID(range_str=u'123')
+        m.save()
+        self.assertTrue(isinstance(m.number_id, int))
+        self.assertEqual(m.range_str, '123')
+        self.assertTrue(isinstance(m.__class__.number_id, fields.IntField))
+        m.table.delete()
+
+        m = NumberRange(range_int=123)
+        m.save()
+        self.assertTrue(isinstance(m.range_int, int))
+        self.assertEqual(m.range_int, 123)
+        self.assertTrue(isinstance(m.__class__.range_int, fields.IntField))
+        m.table.delete()
+
         class MyModel(models.Model):
             name = dynamite.fields.StrField()
 
@@ -230,10 +315,15 @@ class TestModels(unittest.TestCase):
         self.assertEqual(MyModel.range, None)
         self.assertEqual(MyModel.table, MyModel().table)
         record = MyModel(name='jopka')
+        self.assertEqual(record.rk, None)
+        self.assertEqual(MyModel.items, MyModel.get_items())
+        self.assertEqual(MyModel.items, record.items)
 
 
         self.assertEqual(record.name, 'jopka')
         record.save()
+        self.assertEqual('<MyModel: {}>'.format(record.key), str(record))
+        self.assertEqual(record.rk, None)
         t = MyModel.get_table()
         item = t.items.get(record.to_db())
         self.assertNotEqual(item, None)
@@ -259,10 +349,6 @@ class TestModels(unittest.TestCase):
             empty = dynamite.fields.StrField()
 
             @classmethod
-            def hash_generator(cls):
-                return 'my_super_hash'
-
-            @classmethod
             def get_table_name(cls):
                 return '{}Table_{}'.format(cls.__name__, add_name)
 
@@ -277,7 +363,8 @@ class TestModels(unittest.TestCase):
         self.assertEqual(m.rk, m.custom_range)
         self.assertEqual(ModelIDRange.hash, 'custom_id')
         self.assertEqual(ModelIDRange.range, 'custom_range')
-        self.assertRaises(RuntimeError, lambda: ModelIDRange(custom_range='CUSTOM_RANGE').save())
+        m2 = ModelIDRange(custom_range='CUSTOM_RANGE')
+        m2.save()
 
         class NewModel(models.Model):
 
@@ -291,7 +378,22 @@ class TestModels(unittest.TestCase):
             def get_table_name(cls):
                 return 'test_non_create'
 
-        NewModel.get_table().scan()
-        NewModel2.get_table().scan()
+        self.assertEqual(list(NewModel.get_table().items.scan()), list(NewModel2.get_table().items.scan()))
 
         t.delete()
+
+        class ModelTestRecurse(models.Model):
+
+            @classmethod
+            def hash_generator(cls):
+                return 'my_super_hash'
+
+            @classmethod
+            def get_table_name(cls):
+                return '{}Table_{}'.format(cls.__name__, add_name)
+
+        m = ModelTestRecurse()
+        m.save()
+        m = ModelTestRecurse()
+        self.assertRaises(RuntimeError, lambda: m.save())
+        m.table.delete()

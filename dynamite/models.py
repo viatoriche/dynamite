@@ -4,11 +4,11 @@ from dynamite.schema import Schema
 from dynamite.tables import Table
 from dynamite.utils import ClassProperty
 
-
 class Model(Schema):
     _table = None
     read_capacity_units = 5
     write_capacity_units = 5
+    Table = Table
 
     # ignore class properties in get_fields
     _ignore_elems = set(['table', 'items', 'hash', 'range'])
@@ -17,10 +17,11 @@ class Model(Schema):
     hash_generator = None
 
     def __init__(self, **kwargs):
-        self.key = kwargs.pop('key', {})
         super(Model, self).__init__(**kwargs)
         if self.__class__._table is None:
             self.generate_table()
+        self.generate_key()
+        self.update_state(**kwargs)
 
     @classmethod
     def generate_table(cls):
@@ -31,13 +32,15 @@ class Model(Schema):
         hash_attr = None
         if cls._hash_field is not None:
             hash_attr = [cls._hash_field, cls._fields[cls._hash_field].db_type]
-        cls._table = Table(
+        cls._table = cls.Table(
             name=cls.get_table_name(),
             hash_attr=hash_attr,
             range_attr=range_attr,
             read_capacity_units=cls.read_capacity_units,
             write_capacity_units=cls.write_capacity_units,
             hash_generator=cls.hash_generator,
+            to_db=cls.to_db_cls,
+            to_python=cls.to_python_cls,
         )
         if cls._hash_field is None:
             field = cls._table.hash_attr[0]
@@ -95,25 +98,35 @@ class Model(Schema):
         else:
             return None
 
+    def __repr__(self):
+        return '<{}: {}>'.format(self.__class__.__name__, self.key)
+
     @classmethod
     def get_table_name(cls):
         return cls.__name__
 
     def save(self):
-        if not self.key:
+        if not self.hk:
             created, item = self.get_table().items.create(item=self.to_db())
             if created:
                 self.to_python(item)
-            if not created:
+            else:
                 raise RuntimeError('Item not created')
         else:
-            self.get_table().items.put(item=self.to_db())
+            self.get_table().items.put(self)
 
-    def to_db(self, data=None):
-        item = super(Model, self).to_db(data)
-        item.update(self.key)
-        return item
+    def generate_key(self):
+        self.key = self.table.items.get_key_from_item(self.to_db())
 
     def to_python(self, data):
-        self.key = self.get_table().items.get_key_from_item(data)
-        return super(Model, self).to_python(data)
+        super(Model, self).to_python(data)
+        self.generate_key()
+        return self
+
+    @classmethod
+    def to_python_cls(cls, data):
+        if data is None:
+            return None
+        instance = super(Model, cls).to_python_cls(data)
+        instance.generate_key()
+        return instance

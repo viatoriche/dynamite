@@ -11,14 +11,17 @@ class Schema(object):
 
     defaults_to_python = False
 
+    def update_state(self, **kwargs):
+        self.default_state(**kwargs)
+        for key in kwargs:
+            if key in self.fields:
+                self.set_state(key, kwargs[key])
+
     def __init__(self, **kwargs):
         self._state = {}
         if self.__class__._fields is None:
             self.get_fields()
-        self.init_state()
-        for key in kwargs:
-            if key in self.fields:
-                self.set_state(key, kwargs[key])
+        self.update_state(**kwargs)
 
     def get_default_value(self, field):
         value = self.fields[field].default
@@ -27,10 +30,12 @@ class Schema(object):
         return value
 
 
-    def init_state(self):
-        for field in self.fields:
-            value = self.get_default_value(field)
-            self.set_state(field, value)
+    def default_state(self, **kwargs):
+        fields = {k: self.fields[k] for k in self.fields if k not in kwargs}
+        for field in fields:
+            if self.get_state(field) is None:
+                value = self.get_default_value(field)
+                self.set_state(field, value)
 
     def set_state(self, name, value):
         self.fields[name].validate(value)
@@ -38,9 +43,28 @@ class Schema(object):
         return value
 
     def get_state(self, name):
-        value = self.state[name]
-        self.fields[name].validate(value)
+        if name in self.state:
+            value = self.state[name]
+            if value is not None:
+                self.fields[name].validate(value)
+        else:
+            value = None
         return value
+
+    def __getitem__(self, item):
+        if item in self.fields:
+            return self.get_state(item)
+        return None
+
+    def __setitem__(self, key, value):
+        if key in self.fields:
+            self.set_state(key, value)
+
+    def __iter__(self):
+        return self.state.__iter__()
+
+    def __repr__(self):
+        return '<{}: {}>'.format(self.__class__.__name__, ', '.join(['{}={}'.format(field, self.fields[field].__class__.__name__) for field in self.fields]))
 
     @classmethod
     def get_fields(cls):
@@ -76,19 +100,25 @@ class Schema(object):
         return super(Schema, self).__getattribute__(item)
 
     @classmethod
-    def __get_class_attribute__(cls, item):
-        return getattr(Schema, item)
-
-    def to_db(self, data=None):
-        if data is None:
-            data = self.state
+    def to_db_cls(cls, data):
         result = {}
-        for field in self.fields:
-            value = self.fields[field].to_db(data[field])
-            # result[field] = value
+        for field in cls._fields:
+            if field in data:
+                value = cls._fields[field].to_db(data[field])
+            else:
+                value = None
             if value:
                 result[field] = value
         return result
+
+    def to_db(self):
+        return self.to_db_cls(self.state)
+
+    @classmethod
+    def to_python_cls(cls, data):
+        instance = cls()
+        instance.to_python(data)
+        return instance
 
     def to_python(self, data):
         for field in self.fields:
