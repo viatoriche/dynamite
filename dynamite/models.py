@@ -2,13 +2,17 @@ from dynamite import fields
 from dynamite.defines import STRING, NUMBER
 from dynamite.schema import Schema
 from dynamite.tables import Table
+from dynamite.items import TableItems
 from dynamite.utils import ClassProperty
+
 
 class Model(Schema):
     _table = None
+    _items = None
     read_capacity_units = 5
     write_capacity_units = 5
     Table = Table
+    Items = TableItems
 
     # ignore class properties in get_fields
     _ignore_elems = set(['table', 'items', 'hash', 'range'])
@@ -41,6 +45,7 @@ class Model(Schema):
             hash_generator=cls.hash_generator,
             to_db=cls.to_db_cls,
             to_python=cls.to_python_cls,
+            items=cls.Items,
         )
         if cls._hash_field is None:
             field = cls._table.hash_attr[0]
@@ -65,7 +70,9 @@ class Model(Schema):
 
     @classmethod
     def get_items(cls):
-        return cls.get_table().items
+        if cls._items is None:
+            cls._items = cls.get_table().items
+        return cls._items
 
     @classmethod
     def get_hash(cls):
@@ -130,3 +137,7 @@ class Model(Schema):
         instance = super(Model, cls).to_python_cls(data)
         instance.generate_key()
         return instance
+
+    @classmethod
+    def get(cls, **key):
+        return cls.items.get(item=key)

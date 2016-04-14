@@ -54,6 +54,29 @@ class UnicodeField(BaseField):
         else:
             return value
 
+class BooleanField(BaseField):
+    python_type = bool
+    db_type = defines.BOOLEAN
+
+class DynamoStringField(UnicodeField):
+
+    def validate(self, value):
+        if not isinstance(value, basestring):
+            raise SchemaValidationError(value, basestring)
+
+class DynamoNumberField(BaseField):
+    python_type = long
+    db_type = defines.NUMBER
+
+    def validate(self, value):
+        str_value = str(value)
+        if not str_value.isdigit():
+            raise SchemaValidationError(value, self.python_type)
+
+    def to_python(self, value):
+        if not isinstance(value, self.python_type):
+            value = self.python_type(value)
+        return value
 
 class StrField(BaseField):
     python_type = str

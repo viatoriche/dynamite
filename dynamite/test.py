@@ -62,7 +62,7 @@ class TestTables(unittest.TestCase):
 
     def test_create_table(self):
 
-        from dynamite import tables
+        from dynamite import tables, items
         from boto3.dynamodb.conditions import Key, Attr
 
         table_name = get_random_string()
@@ -105,7 +105,18 @@ class TestTables(unittest.TestCase):
         results = list(table.items.all())
         self.assertEqual(len(results), 5)
 
+        class MyItems(items.TableItems):
+            for_test = 'Jopka'
+
+        table1 = tables.Table(table_name, items=MyItems)
+        table2 = tables.Table(table_name, items=MyItems())
+
+        self.assertEqual(table1.items.for_test, table2.items.for_test)
+        self.assertEqual(table1.items.for_test, 'Jopka')
+
         table.delete()
+
+
 
 
     def test_table_with_schema(self):
@@ -141,7 +152,7 @@ class TestSchema(unittest.TestCase):
 
     def test_schema(self):
 
-        from dynamite import schema
+        from dynamite import schema, fields
 
         class InSchemaTwo(schema.Schema):
             name = dynamite.fields.StrField(default='in_schema_2')
@@ -160,6 +171,9 @@ class TestSchema(unittest.TestCase):
             arg_b64 = dynamite.fields.Base64Field()
             arg_pickle = dynamite.fields.PickleField()
             in_schema = dynamite.fields.SchemaField(InSchema)
+            arg_number = dynamite.fields.DynamoNumberField()
+            arg_string = dynamite.fields.DynamoStringField()
+            arg_bool = dynamite.fields.BooleanField()
 
         class CustomHashRanges(schema.Schema):
 
@@ -184,6 +198,17 @@ class TestSchema(unittest.TestCase):
         my_schema.arg_list = [1, 2]
         self.assertEqual(my_schema.arg_list, [1, 2])
         self.assertEqual(my_schema.def_arg_dict['2'], 2)
+        my_schema.arg_string = '123'
+        self.assertEqual(my_schema.arg_string, u'123')
+        self.assertEqual(my_schema.arg_string, '123')
+        my_schema.arg_string = u'123'
+        self.assertEqual(my_schema.arg_string, u'123')
+        self.assertEqual(my_schema.arg_string, '123')
+        my_schema.arg_number = 123
+        self.assertEqual(my_schema.arg_number, 123)
+        def add_number():
+            my_schema.arg_number = 'no number'
+        self.assertRaises(fields.SchemaValidationError, add_number)
 
         d = my_schema.to_db()
         two_schema = MySchema()
@@ -248,7 +273,7 @@ class TestModels(unittest.TestCase):
 
     def test_models(self):
 
-        from dynamite import models, tables, defines, fields
+        from dynamite import models, tables, defines, fields, items
 
         add_name = get_random_string()
 
@@ -365,6 +390,8 @@ class TestModels(unittest.TestCase):
         self.assertEqual(ModelIDRange.range, 'custom_range')
         m2 = ModelIDRange(custom_range='CUSTOM_RANGE')
         m2.save()
+        m = ModelIDRange.get(custom_id='my_super_hash', custom_range='CUSTOM_RANGE')
+        self.assertFalse(m is None)
 
         class NewModel(models.Model):
 
@@ -372,13 +399,19 @@ class TestModels(unittest.TestCase):
             def get_table_name(cls):
                 return 'test_non_create'
 
+        class CustomItems(items.TableItems):
+            for_test = 'Popka'
+
         class NewModel2(models.Model):
+
+            Items = CustomItems
 
             @classmethod
             def get_table_name(cls):
                 return 'test_non_create'
 
         self.assertEqual(list(NewModel.get_table().items.scan()), list(NewModel2.get_table().items.scan()))
+        self.assertEqual(NewModel2.items.for_test, 'Popka')
 
         t.delete()
 

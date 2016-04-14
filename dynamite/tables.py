@@ -4,6 +4,7 @@ from botocore import exceptions as boto_exceptions
 from dynamite import connection
 from dynamite import defines
 from dynamite.items import TableItems
+import inspect
 
 
 class KeyValidationError(ValueError):
@@ -32,6 +33,9 @@ class Table(object):
         self._table = None
         if items is None:
             items = TableItems(self)
+        else:
+            if inspect.isclass(items):
+                items = items()
 
         self.items = items
         self.items.table = self
