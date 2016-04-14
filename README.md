@@ -11,3 +11,5 @@ need update...
 # TODO:
 
 * Add indexes
+* Boolean fields
+* Custom items for Model
