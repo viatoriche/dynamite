@@ -10,7 +10,7 @@ class BaseField(object):
     python_type = None
     db_type = None
 
-    def __init__(self, default=None, range_field=False, hash_field=False, db_type=None):
+    def __init__(self, default=None, range_field=False, hash_field=False, db_type=None, name=None):
         if default is None and self.python_type is not None:
             default = self.python_type()
         if db_type is not None:
@@ -19,6 +19,7 @@ class BaseField(object):
             self._range = range_field
             self._hash = hash_field
         self.default = default
+        self.name = name
 
     def validate(self, value):
         if self.python_type is not None:
@@ -161,7 +162,7 @@ class SchemaField(BaseField):
         if isinstance(data, dict):
             value = self.python_type()
             for key in data:
-                value.set_state(key, value.fields[key].to_python(data[key]))
+                value._set_state(key, value._fields[key].to_python(data[key]))
         elif isinstance(data, Schema):
             value = data
         else:

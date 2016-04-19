@@ -17,7 +17,6 @@ class Model(Schema):
     # ignore class properties in get_fields
     _ignore_elems = set(['table', 'items', 'hash', 'range'])
 
-    # @classmethod
     hash_generator = None
 
     def __init__(self, **kwargs):
@@ -25,17 +24,17 @@ class Model(Schema):
         if self.__class__._table is None:
             self.generate_table()
         self.generate_key()
-        self.update_state(**kwargs)
+        self._update_state(**kwargs)
 
     @classmethod
     def generate_table(cls):
-        cls.get_fields()
+        cls._get_fields()
         range_attr = None
         if cls._range_field is not None:
-            range_attr = [cls._range_field, cls._fields[cls._range_field].db_type]
+            range_attr = [cls._range_field, cls._fields_[cls._range_field].db_type]
         hash_attr = None
         if cls._hash_field is not None:
-            hash_attr = [cls._hash_field, cls._fields[cls._hash_field].db_type]
+            hash_attr = [cls._hash_field, cls._fields_[cls._hash_field].db_type]
         cls._table = cls.Table(
             name=cls.get_table_name(),
             hash_attr=hash_attr,
@@ -60,7 +59,7 @@ class Model(Schema):
                     setattr(cls, field, fields.UnicodeField(range_field=True))
                 if cls._table.range_attr[1] == NUMBER:
                     setattr(cls, field, fields.IntField(range_field=True))
-        cls.get_fields()
+        cls._get_fields()
 
     @classmethod
     def get_table(cls):

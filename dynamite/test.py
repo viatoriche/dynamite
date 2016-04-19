@@ -219,13 +219,13 @@ class TestSchema(unittest.TestCase):
         empty_dict = {}
         two_schema.to_python(empty_dict)
         self.assertEqual(two_schema.to_db()['arg_str'], '123')
-        two_schema.defaults_to_python = True
+        two_schema._defaults_to_python = True
         two_schema.to_python(empty_dict)
         self.assertEqual(two_schema.to_db()['arg_str'], 'default')
         two_schema.in_schema.in_schema.name = '123'
         self.assertEqual(two_schema.to_db()['in_schema']['in_schema']['name'], '123')
 
-        two_schema.defaults_to_python = False
+        two_schema._defaults_to_python = False
 
         two_schema.to_python({'arg_str': u'123'})
         self.assertEqual(two_schema.to_db()['arg_str'], '123')
@@ -330,7 +330,7 @@ class TestModels(unittest.TestCase):
         m.table.delete()
 
         class MyModel(models.Model):
-            name = dynamite.fields.StrField()
+            name = dynamite.fields.StrField(name='another_name')
 
             @classmethod
             def get_table_name(cls):
@@ -339,20 +339,21 @@ class TestModels(unittest.TestCase):
         self.assertEqual(MyModel.hash, 'id')
         self.assertEqual(MyModel.range, None)
         self.assertEqual(MyModel.table, MyModel().table)
-        record = MyModel(name='jopka')
+        record = MyModel(another_name='jopka')
         self.assertEqual(record.rk, None)
         self.assertEqual(MyModel.items, MyModel.get_items())
         self.assertEqual(MyModel.items, record.items)
 
 
-        self.assertEqual(record.name, 'jopka')
+        record = MyModel(another_name='popka')
+        self.assertEqual(record.another_name, 'popka')
         record.save()
         self.assertEqual('<MyModel: {}>'.format(record.key), str(record))
         self.assertEqual(record.rk, None)
         t = MyModel.get_table()
         item = t.items.get(record.to_db())
         self.assertNotEqual(item, None)
-        self.assertEqual(item['name'], record.name)
+        self.assertEqual(item['another_name'], record.another_name)
         self.assertEqual(record.id, record.hk)
 
         record.name = 'new name'
@@ -361,7 +362,7 @@ class TestModels(unittest.TestCase):
         t = MyModel.get_table()
 
         item = t.items.get(record.to_db())
-        self.assertEqual(item['name'], record.name)
+        self.assertEqual(item['another_name'], record.another_name)
 
         t.delete()
 
