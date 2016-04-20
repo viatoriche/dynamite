@@ -11,3 +11,4 @@ need update...
 # TODO:
 
 * Add indexes
+* Smart scan/query
