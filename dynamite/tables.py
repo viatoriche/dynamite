@@ -80,6 +80,9 @@ class TableItems(object):
         result = response['ResponseMetadata']['HTTPStatusCode'] == 200
         return result, item
 
+    def get_map_attr(self, *args):
+        return '.'.join([str(arg) for arg in args if arg])
+
     def get(self, item=None, hash_attr=None, ranges=None):
         key = self.generate_key(item=item, hash_attr=hash_attr, ranges=ranges)
         response = self.table.get_item(
