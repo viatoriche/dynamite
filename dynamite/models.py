@@ -9,6 +9,7 @@ from dynamite.utils import ClassProperty
 class Model(Schema):
     _table = None
     _items = None
+    _key = None
     read_capacity_units = 5
     write_capacity_units = 5
     Table = Table
@@ -42,8 +43,6 @@ class Model(Schema):
             read_capacity_units=cls.read_capacity_units,
             write_capacity_units=cls.write_capacity_units,
             hash_generator=cls.hash_generator,
-            to_db=cls.to_db_cls,
-            to_python=cls.to_python_cls,
             items=cls.Items,
         )
         if cls._hash_field is None:
@@ -91,18 +90,12 @@ class Model(Schema):
 
     @property
     def hk(self):
-        if self.key:
-            return self.key[self._hash_field]
-        else:
-            return None
+        return self.key.get(self._hash_field)
 
     @property
     def rk(self):
-        if self.key:
-            if self._range_field is not None:
-                return self.key[self._range_field]
-        else:
-            return None
+        if self._range_field is not None:
+           return self.key.get(self._range_field)
 
     def __repr__(self):
         return '<{}: {}>'.format(self.__class__.__name__, self.key)
@@ -119,10 +112,15 @@ class Model(Schema):
             else:
                 raise RuntimeError('Item not created')
         else:
-            self.get_table().items.put(self)
+            self.get_table().items.put(self.to_db())
 
     def generate_key(self):
-        self.key = self.table.items.get_key_from_item(self.to_db())
+        self._key = self.table.items.get_key_from_item(self.to_db())
+
+    @property
+    def key(self):
+        self.generate_key()
+        return self._key
 
     def to_python(self, data):
         super(Model, self).to_python(data)
@@ -139,4 +137,24 @@ class Model(Schema):
 
     @classmethod
     def get(cls, **key):
-        return cls.items.get(item=key)
+        return cls.to_python_cls(cls.items.get(item=key))
+
+    @classmethod
+    def delete(cls, **key):
+        return cls.items.delete(item=key)
+
+    @classmethod
+    def scan(cls, **params):
+        for item in cls.items.scan(**params):
+            yield cls.to_python_cls(item)
+
+    @classmethod
+    def query(cls, **params):
+        for item in cls.items.query(**params):
+            yield cls.to_python_cls(item)
+
+    @classmethod
+    def all(cls):
+        for item in cls.items.all():
+            yield cls.to_python_cls(item)
+

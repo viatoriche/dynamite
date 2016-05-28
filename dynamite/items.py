@@ -2,8 +2,6 @@ class TableItems(object):
     def __init__(self, table=None, max_recursion_create=5):
         self.table = table
         self.max_recursion_create = max_recursion_create
-        self.to_python = lambda result: result
-        self.to_db = lambda result: result
 
     def generate_key(self, item=None, hash_attr=None, range_attr=None):
         key = {}
@@ -43,7 +41,6 @@ class TableItems(object):
         return key
 
     def update(self, item=None, hash_attr=None, range_attr=None, **options):
-        item = self.to_db(item)
         key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
 
         options.update({'Key': key})
@@ -52,7 +49,6 @@ class TableItems(object):
         return result
 
     def delete(self, item=None, hash_attr=None, range_attr=None):
-        item = self.to_db(item)
         key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
 
         response = self.table.delete_item(Key=key)
@@ -60,26 +56,23 @@ class TableItems(object):
         return result
 
     def put(self, item=None, hash_attr=None, range_attr=None):
-        item = self.to_db(item)
         key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
         if item is None:
             item = {}
         item.update(key)
         response = self.table.put_item(Item=item)
         result = response['ResponseMetadata']['HTTPStatusCode'] == 200
-        return result, self.to_python(item)
+        return result, item
 
     def get(self, item=None, hash_attr=None, range_attr=None):
-        item = self.to_db(item)
         key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
         response = self.table.get_item(
             Key=key,
         )
         item = response.get('Item', None)
-        return self.to_python(item)
+        return item
 
     def create(self, item=None, hash_attr=None, range_attr=None, _recurse_count=0):
-        item = self.to_db(item)
         if _recurse_count > self.max_recursion_create:
             raise RuntimeError('Maximum tries for create...')
         key = self.generate_key(item=item, hash_attr=hash_attr, range_attr=range_attr)
@@ -105,16 +98,16 @@ class TableItems(object):
         response = self.table.scan(**options)
         items = response.get('Items', [])
         for item in items:
-            yield self.to_python(item)
+            yield item
 
     def query(self, **options):
         response = self.table.query(**options)
         items = response.get('Items', [])
         for item in items:
-            yield self.to_python(item)
+            yield item
 
     def all(self):
         response = self.table.scan()
         items = response.get('Items', [])
         for item in items:
-            yield self.to_python(item)
+            yield item

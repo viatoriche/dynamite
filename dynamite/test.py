@@ -344,11 +344,22 @@ class TestModels(unittest.TestCase):
         self.assertEqual(MyModel.items, MyModel.get_items())
         self.assertEqual(MyModel.items, record.items)
 
+        class PickleModel(models.Model):
+            pickle = fields.PickleField()
+
+        pm = PickleModel()
+        pm.pickle = {'test': 123}
+        self.assertEqual(pm.pickle, {'test': 123})
+        pm.save()
+        self.assertEqual(pm.pickle, {'test': 123})
+
+        pm2 = PickleModel.get(id=pm.id)
+        self.assertEqual(pm2.pickle, {'test': 123})
 
         record = MyModel(another_name='popka')
         self.assertEqual(record.another_name, 'popka')
         record.save()
-        self.assertEqual('<MyModel: {}>'.format(record.key), str(record))
+        self.assertEqual('<MyModel: {}>'.format(record._key), str(record))
         self.assertEqual(record.rk, None)
         t = MyModel.get_table()
         item = t.items.get(record.to_db())
@@ -373,6 +384,7 @@ class TestModels(unittest.TestCase):
             custom_range = dynamite.fields.StrField(range_field=True)
             name = dynamite.fields.StrField(default=lambda: 'name')
             empty = dynamite.fields.StrField()
+            pickle = dynamite.fields.PickleField()
 
             @classmethod
             def get_table_name(cls):
@@ -390,7 +402,10 @@ class TestModels(unittest.TestCase):
         self.assertEqual(ModelIDRange.hash, 'custom_id')
         self.assertEqual(ModelIDRange.range, 'custom_range')
         m2 = ModelIDRange(custom_range='CUSTOM_RANGE')
+        m2.pickle = {'test': 123}
         m2.save()
+        mm = ModelIDRange.get(custom_id=m2.custom_id, custom_range=m2.custom_range)
+        self.assertEqual(mm.pickle, {'test': 123})
         m = ModelIDRange.get(custom_id='my_super_hash', custom_range='CUSTOM_RANGE')
         self.assertFalse(m is None)
 
@@ -431,3 +446,62 @@ class TestModels(unittest.TestCase):
         m = ModelTestRecurse()
         self.assertRaises(RuntimeError, lambda: m.save())
         m.table.delete()
+
+        test_name = get_random_string()
+
+        class ModelTestItems(models.Model):
+            test = fields.Base64Field()
+            num = fields.DynamoNumberField()
+
+            @classmethod
+            def get_table_name(cls):
+                return test_name
+
+        t1 = ModelTestItems()
+        t2 = ModelTestItems()
+        t3 = ModelTestItems()
+        t3.save()
+        t1.test = '\x00'
+        t1.num = 1
+        t2.test = '\x01'
+        t2.num = 2
+        t3.test = '\x02'
+        t3.num = 3
+        t1.save()
+        t2.save()
+        t3.save()
+
+        self.assertEqual(t1.test, '\x00')
+        self.assertEqual(t2.test, '\x01')
+        self.assertEqual(t3.test, '\x02')
+
+        t1 = ModelTestItems.get(id=t1.id)
+        self.assertEqual(t1.test, '\x00')
+
+        from boto3.dynamodb.conditions import Attr
+
+        results = list(ModelTestItems.scan(FilterExpression=Attr('num').eq(1)))
+
+        self.assertEqual(results[0].num, 1)
+        self.assertEqual(results[0].test,'\x00')
+        self.assertEqual(len(results), 1)
+
+        results = [m.num for m in ModelTestItems.all()]
+
+        self.assertTrue(1 in results)
+        self.assertTrue(2 in results)
+        self.assertTrue(3 in results)
+
+        results = [m.test for m in ModelTestItems.all()]
+
+        self.assertTrue('\x00' in results)
+        self.assertTrue('\x01' in results)
+        self.assertTrue('\x02' in results)
+
+        self.assertEqual(len(results), 3)
+
+        ModelTestItems.delete(id=t1.id)
+        t1 = ModelTestItems.get(id=t1.id)
+        self.assertEqual(t1, None)
+
+

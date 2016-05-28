@@ -19,7 +19,7 @@ class Table(object):
         return '<{}>'.format(self.table.__str__())
 
     def __init__(self, name, hash_attr=None, range_attr=None, items=None, read_capacity_units=5,
-                 write_capacity_units=5, hash_generator=None, to_db=None, to_python=None):
+                 write_capacity_units=5, hash_generator=None):
         self.name = name
         if hash_attr is None:
             hash_attr = ('id', defines.STRING,)
@@ -39,10 +39,6 @@ class Table(object):
 
         self.items = items
         self.items.table = self
-        if to_db is not None:
-            self.items.to_db = to_db
-        if to_python is not None:
-            self.items.to_python = to_python
         if hash_generator is not None:
             self.hash_generator = hash_generator
 
