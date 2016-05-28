@@ -102,6 +102,8 @@ class PickleField(BaseField):
     python_type = object
 
     def to_python(self, value):
+        if isinstance(value, unicode):
+            value = value.encode()
         return pickle.loads(value)
 
     def to_db(self, value):
