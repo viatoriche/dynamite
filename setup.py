@@ -2,7 +2,7 @@ import os
 from distutils.core import setup
 from setuptools import find_packages
 
-__version__ = '0.7.0'
+__version__ = '0.7.1'
 
 package = 'dynamite'
 
@@ -35,5 +35,5 @@ setup(
     description='Dynamite ORM',
     url='https://github.com/viatoriche/dynamite',
     download_url='https://github.com/viatoriche/dynamite/tarball/{}'.format(version),
-    install_requires=['boto3', 'addict'],
+    install_requires=['boto3', 'addict==0.4.0'],
 )
