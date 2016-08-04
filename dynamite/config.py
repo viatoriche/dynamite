@@ -5,7 +5,7 @@ class Config(Singleton):
 
     def __getitem__(self, item):
         if item not in self.data:
-            self.data[item] = {}
+            self.data[item] = addict.Dict()
         return self.data[item]
 
     def __init__(self):
