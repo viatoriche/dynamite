@@ -63,7 +63,7 @@ class UnicodeField(BaseField):
 
 class BooleanField(BaseField):
     python_type = bool
-    db_type = defines.BINARY
+    db_type = defines.BOOLEAN
 
 
 class DynamoStringField(UnicodeField):
