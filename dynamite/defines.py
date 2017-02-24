@@ -14,7 +14,8 @@ M = 'M'
 
 # usage defines
 STRING = S
-BOOLEAN = B
+BINARY = B
+BOOLEAN = BOOL
 BINARY_SET = BS
 LIST = L
 NUMBER = N

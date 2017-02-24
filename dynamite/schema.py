@@ -75,10 +75,12 @@ class Schema(object):
         elems = [elem for elem in dir(cls) if not cls._ignore_elem(elem, BaseField)]
         cls._fields_ = {elem: getattr(cls, elem) for elem in elems}
 
+        pre_fields = dict(cls._fields_)
         for field in cls._fields_.keys():
             if cls._fields_[field].name is not None:
-                cls._fields_[cls._fields_[field].name] = cls._fields_[field]
-                del cls._fields_[field]
+                pre_fields[cls._fields_[field].name] = cls._fields_[field]
+                del pre_fields[field]
+        cls._fields_ = pre_fields
 
         for field in cls._fields_:
             if cls._fields_[field]._range:

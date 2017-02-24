@@ -1,5 +1,7 @@
 # Dynamite - DynamoDB ORM
 
+support: PY2 and PY3 now
+
 based on boto3
 
 ## Usage

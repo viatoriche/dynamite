@@ -1,8 +1,13 @@
 import base64
-import cPickle as pickle
+
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 from dynamite.schema import Schema
 from dynamite import defines
+import six
 
 
 class BaseField(object):
@@ -42,7 +47,7 @@ class SchemaValidationError(ValueError):
 
 
 class UnicodeField(BaseField):
-    python_type = unicode
+    python_type = six.text_type
     db_type = defines.STRING
 
     def __init__(self, encoding='utf8', **kwargs):
@@ -50,23 +55,25 @@ class UnicodeField(BaseField):
         super(UnicodeField, self).__init__(**kwargs)
 
     def to_python(self, value):
-        if not isinstance(value, unicode):
+        if not isinstance(value, six.text_type):
             return value.decode(self.encoding)
         else:
             return value
 
+
 class BooleanField(BaseField):
     python_type = bool
-    db_type = defines.BOOLEAN
+    db_type = defines.BINARY
+
 
 class DynamoStringField(UnicodeField):
-
     def validate(self, value):
-        if not isinstance(value, basestring):
-            raise SchemaValidationError(value, basestring)
+        if not isinstance(value, (six.text_type, six.binary_type)):
+            raise SchemaValidationError(value, (six.text_type, six.binary_type))
+
 
 class DynamoNumberField(BaseField):
-    python_type = long
+    python_type = int
     db_type = defines.NUMBER
 
     def validate(self, value):
@@ -79,16 +86,20 @@ class DynamoNumberField(BaseField):
             value = self.python_type(value)
         return value
 
-class StrField(BaseField):
-    python_type = str
+
+class BinaryField(BaseField):
+    python_type = six.binary_type
     db_type = defines.STRING
 
     def __init__(self, encoding='utf8', **kwargs):
         self.encoding = encoding
-        super(StrField, self).__init__(**kwargs)
+        super(BinaryField, self).__init__(**kwargs)
 
     def to_python(self, value):
-        if not isinstance(value, str):
+        # Check for {Binary} field
+        if hasattr(value, 'value'):
+            value = value.value
+        if not isinstance(value, six.binary_type):
             return value.encode(self.encoding)
         else:
             return value
@@ -96,13 +107,16 @@ class StrField(BaseField):
     def to_db(self, value):
         return value.decode(encoding='utf8')
 
+StrField = BinaryField
 
 class PickleField(BaseField):
-    db_type = defines.STRING
+    db_type = defines.BINARY
     python_type = object
 
     def to_python(self, value):
-        if isinstance(value, unicode):
+        if hasattr(value, 'value'):
+            value = value.value
+        if isinstance(value, six.text_type):
             value = value.encode()
         return pickle.loads(value)
 
@@ -121,7 +135,7 @@ class FloatField(BaseField):
 
 
 class LongField(BaseField):
-    python_type = long
+    python_type = int
     db_type = defines.NUMBER
 
 
@@ -136,14 +150,17 @@ class ListField(BaseField):
 
 
 class Base64Field(BaseField):
-
-    python_type = str
+    python_type = six.binary_type
     db_type = defines.STRING
 
     def to_db(self, value):
         return base64.b64encode(value)
 
     def to_python(self, value):
+        if hasattr(value, 'value'):
+            value = value.value
+        if isinstance(value, six.text_type):
+            value = value.encode()
         return base64.b64decode(value)
 
 
