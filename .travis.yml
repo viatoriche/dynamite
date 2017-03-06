@@ -6,7 +6,7 @@ python:
   - "3.6"
 before_install:
   - mkdir /tmp/dynamodb
-  - wget -O - http://dynamodb-preview.s3-website-us-west-2.amazonaws.com/dynamodb_local_latest_preview.tar.gz | tar xz --directory /tmp/dynamodb
+  - wget -O - https://s3.eu-central-1.amazonaws.com/dynamodb-local-frankfurt/dynamodb_local_latest.tar.gz | tar xz --directory /tmp/dynamodb
 install:
   - "pip install ."
   - "pip install -r test-requirements.txt"
