@@ -12,4 +12,7 @@ install:
   - "pip install -r test-requirements.txt"
 before_script:
   - java -Djava.library.path=/tmp/dynamodb/DynamoDBLocal_lib -jar /tmp/dynamodb/DynamoDBLocal.jar -inMemory &
-script: AWS_ACCESS_KEY_ID=123 AWS_SECRET_ACCESS_KEY=123 nosetests dynamite
+#script: AWS_ACCESS_KEY_ID=123 AWS_SECRET_ACCESS_KEY=123 nosetests dynamite
+script: ./runtests.sh
+after_success:
+  - CODECLIMATE_REPO_TOKEN=b71fdbebef8926800ab7c1d965b7bf4873fb4391f16d7f93925a8819267095cd codeclimate-test-reporter
