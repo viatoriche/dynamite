@@ -124,19 +124,16 @@ class PickleField(BaseField):
         return pickle.dumps(value)
 
 
-class IntField(BaseField):
-    python_type = int
-    db_type = defines.NUMBER
+class IntField(DynamoNumberField):
+    pass
 
 
-class FloatField(BaseField):
+class FloatField(DynamoNumberField):
     python_type = float
-    db_type = defines.NUMBER
 
 
-class LongField(BaseField):
+class LongField(DynamoNumberField):
     python_type = int
-    db_type = defines.NUMBER
 
 
 class DictField(BaseField):
