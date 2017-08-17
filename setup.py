@@ -2,7 +2,7 @@ import os
 from distutils.core import setup
 from setuptools import find_packages
 
-__version__ = '0.8.1'
+__version__ = '0.8.2'
 
 package = 'dynamite'
 
